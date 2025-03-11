@@ -91,8 +91,9 @@ int main() {
     if (!glfwInit())
         return -1;
 
+    constexpr int width = 640, height = 480;
     /* Create a windowed mode window and its OpenGL context */
-    GLFWwindow *window = glfwCreateWindow(640, 480, "Hello World", nullptr, nullptr);
+    GLFWwindow *window = glfwCreateWindow(width, height, "Hello World", nullptr, nullptr);
     if (!window) {
         glfwTerminate();
         return -1;
@@ -101,7 +102,7 @@ int main() {
     /* Make the window's context current */
     glfwMakeContextCurrent(window);
 
-    app.Initialize(640, 480);
+    app.Initialize(width, height);
     /* Loop until the user closes the window */
     while (!glfwWindowShouldClose(window)) {
         /* Render here */
