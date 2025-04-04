@@ -9,8 +9,21 @@ set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
 find_package(OpenGL REQUIRED)
 
-add_executable(${PROJECT_NAME} main.cpp)
-target_include_directories(${PROJECT_NAME} PRIVATE ${OPENGL_INCLUDE_DIR})
+# All source files
+add_executable(${PROJECT_NAME}
+    main.cpp
+        src/GLShader.cpp
+        src/BezierApp.cpp
+        src/BezierCurve.cpp
+        src/Point.cpp
+        src/Shader.cpp
+)
+#add_executable(${PROJECT_NAME} main.cpp src/GLShader.cpp)
+target_include_directories(${PROJECT_NAME} PRIVATE
+        ${OPENGL_INCLUDE_DIR}
+        ${CMAKE_SOURCE_DIR} # Add to find include files
+)
+
 target_link_libraries(${PROJECT_NAME} PRIVATE OpenGL::GL)
 
 find_package(glfw3 REQUIRED)
