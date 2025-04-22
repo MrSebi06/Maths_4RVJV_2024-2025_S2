@@ -265,18 +265,17 @@ void BezierCurve::calculateDeCasteljau() {
     showDeCasteljau = true;
     updateBuffers();
 }
-
-void BezierCurve::draw(Shader& shader) {
-    shader.use();
+void BezierCurve::draw(GLShader& shader) {
+    shader.Begin();
 
     // Dessiner le polygone de contrôle (lignes bleues)
     if (controlPoints.size() >= 2) {
-        shader.setVec3("color", 0.0f, 0.0f, 1.0f); // Bleu
+        shader.SetUniform("color", 0.0f, 0.0f, 1.0f);  // Utiliser SetUniform au lieu de setVec3
         glBindVertexArray(controlPolygonVAO);
         glDrawArrays(GL_LINE_STRIP, 0, controlPoints.size());
 
         // Dessiner les points de contrôle (points rouges)
-        shader.setVec3("color", 1.0f, 0.0f, 0.0f); // Rouge
+        shader.SetUniform("color", 1.0f, 0.0f, 0.0f);
         glBindVertexArray(pointsVAO);
         glPointSize(5.0f);
         glDrawArrays(GL_POINTS, 0, controlPoints.size());
@@ -284,7 +283,7 @@ void BezierCurve::draw(Shader& shader) {
 
     // Dessiner la courbe de Bézier (méthode directe)
     if (showDirectMethod && directMethodPoints.size() >= 2) {
-        shader.setVec3("color", 0.0f, 1.0f, 0.0f); // Vert
+        shader.SetUniform("color", 0.0f, 1.0f, 0.0f);
         glBindVertexArray(directMethodVAO);
         glDrawArrays(GL_LINE_STRIP, 0, directMethodPoints.size());
     }
@@ -292,15 +291,16 @@ void BezierCurve::draw(Shader& shader) {
     // Dessiner la courbe de Bézier (méthode de De Casteljau)
     if (showDeCasteljau && deCasteljauPoints.size() >= 2) {
         if (showDirectMethod) {
-            shader.setVec3("color", 1.0f, 0.0f, 1.0f); // Magenta
+            shader.SetUniform("color", 1.0f, 0.0f, 1.0f);
         } else {
-            shader.setVec3("color", 0.0f, 1.0f, 0.0f); // Vert
+            shader.SetUniform("color", 0.0f, 1.0f, 0.0f);
         }
         glBindVertexArray(deCasteljauVAO);
         glDrawArrays(GL_LINE_STRIP, 0, deCasteljauPoints.size());
     }
 
     glBindVertexArray(0);
+    shader.End();  // Ajouter cette ligne pour désactiver le shader
 }
 
 void BezierCurve::toggleDirectMethod() {

@@ -3,7 +3,7 @@
 
 #include <vector>
 #include <GL/glew.h>
-#include "../include/Shader.h"
+#include "../include/GLShader.h"
 #include "../include/Point.h"
 
 class BezierCurve {
@@ -37,7 +37,7 @@ public:
     void showBoth();
     bool isShowingDirectMethod() const;
     bool isShowingDeCasteljau() const;
-    void draw(Shader& shader);
+    void draw(GLShader& shader);
 
     // Méthodes de transformation
     void translate(float dx, float dy);

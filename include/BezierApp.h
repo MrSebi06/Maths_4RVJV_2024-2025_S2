@@ -5,7 +5,7 @@
 #include <GLFW/glfw3.h>
 #include <vector>
 #include <list>
-#include "../include/Shader.h"
+#include "../include/GLShader.h"  // Changé ici
 #include "../include/BezierCurve.h"
 
 class BezierApp {
@@ -23,7 +23,7 @@ public:
 private:
     int width, height;
     GLFWwindow* window;
-    Shader* shader;
+    GLShader* shader;  // Changé ici
 
     std::list<BezierCurve> curves;
     std::list<BezierCurve>::iterator selectedCurveIterator;

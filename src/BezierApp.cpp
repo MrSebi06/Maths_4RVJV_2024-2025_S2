@@ -38,8 +38,17 @@ BezierApp::BezierApp(const char* title, int width, int height)
     glViewport(0, 0, width, height);
 
     // Création du shader
-    shader = new Shader("../shaders/basic.vs.glsl", "../shaders/basic.fs.glsl");
 
+    shader = new GLShader();
+    bool vsOk = shader->LoadVertexShader("../shader/basic.vs.glsl");
+    bool fsOk = shader->LoadFragmentShader("../shader/basic.fs.glsl");
+    bool createOk = shader->Create();
+
+    if (!vsOk || !fsOk || !createOk) {
+        std::cerr << "Erreur lors du chargement des shaders!" << std::endl;
+        // Ajoutez cette ligne pour terminer le programme proprement
+        exit(EXIT_FAILURE);
+    }
     // Configuration des callbacks
     glfwSetWindowUserPointer(window, this);
 
@@ -64,6 +73,17 @@ BezierApp::~BezierApp() {
 }
 
 void BezierApp::run() {
+    // Afficher la version d'OpenGL et les informations du renderer
+    const GLubyte* renderer = glGetString(GL_RENDERER);
+    const GLubyte* version = glGetString(GL_VERSION);
+    std::cout << "Renderer: " << renderer << std::endl;
+    std::cout << "OpenGL version: " << version << std::endl;
+
+    // Activer le mélange des couleurs et la taille des points
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glPointSize(5.0f); // Points plus gros pour mieux les voir
+
     while (!glfwWindowShouldClose(window)) {
         processInput();
         render();
