@@ -2,6 +2,8 @@
 #include <iostream>
 #include <chrono>
 #include <cmath>
+#include <algorithm>
+#include <limits>
 
 BezierCurve::BezierCurve() : step(0.01f), showDirectMethod(false), showDeCasteljau(false) {
     setupBuffers();
@@ -107,7 +109,70 @@ void BezierCurve::addControlPoint(float x, float y) {
         generatePascalTriangle(controlPoints.size() - 1);
     }
 
+    // Recalculer les courbes si elles sont affichées
+    recalculateCurves();
     updateBuffers();
+}
+
+void BezierCurve::updateControlPoint(int index, float x, float y) {
+    if (index >= 0 && index < controlPoints.size()) {
+        controlPoints[index].x = x;
+        controlPoints[index].y = y;
+
+        // Recalculer les courbes
+        recalculateCurves();
+        updateBuffers();
+    }
+}
+
+void BezierCurve::removeControlPoint(int index) {
+    if (index >= 0 && index < controlPoints.size()) {
+        controlPoints.erase(controlPoints.begin() + index);
+
+        // Recalculer les courbes
+        recalculateCurves();
+        updateBuffers();
+    }
+}
+
+Point BezierCurve::getControlPoint(int index) const {
+    if (index >= 0 && index < controlPoints.size()) {
+        return controlPoints[index];
+    }
+    return Point(0, 0); // Point par défaut si l'index est invalide
+}
+
+float BezierCurve::distanceToControlPoint(int index, float x, float y) const {
+    if (index >= 0 && index < controlPoints.size()) {
+        Point p(x, y);
+        return controlPoints[index].distanceTo(p);
+    }
+    return std::numeric_limits<float>::max(); // Distance maximale si l'index est invalide
+}
+
+int BezierCurve::getNearestControlPoint(float x, float y) const {
+    if (controlPoints.empty()) {
+        return -1;
+    }
+
+    Point p(x, y);
+    int nearestIndex = 0;
+    float minDistance = controlPoints[0].distanceTo(p);
+
+    for (int i = 1; i < controlPoints.size(); ++i) {
+        float distance = controlPoints[i].distanceTo(p);
+        if (distance < minDistance) {
+            minDistance = distance;
+            nearestIndex = i;
+        }
+    }
+
+    // Seuil de sélection (ajustable)
+    if (minDistance > 0.1f) {
+        return -1; // Aucun point assez proche
+    }
+
+    return nearestIndex;
 }
 
 void BezierCurve::clearControlPoints() {
@@ -116,6 +181,7 @@ void BezierCurve::clearControlPoints() {
     deCasteljauPoints.clear();
     showDirectMethod = false;
     showDeCasteljau = false;
+    updateBuffers();
 }
 
 void BezierCurve::increaseStep() {
@@ -276,4 +342,265 @@ bool BezierCurve::isShowingDirectMethod() const {
 
 bool BezierCurve::isShowingDeCasteljau() const {
     return showDeCasteljau;
+}
+
+// Méthodes de transformation
+void BezierCurve::translate(float dx, float dy) {
+    for (auto& point : controlPoints) {
+        point.x += dx;
+        point.y += dy;
+    }
+
+    recalculateCurves();
+    updateBuffers();
+}
+
+void BezierCurve::scale(float sx, float sy) {
+    // Calculer le centre du polygone de contrôle
+    float centerX = 0.0f, centerY = 0.0f;
+    for (const auto& point : controlPoints) {
+        centerX += point.x;
+        centerY += point.y;
+    }
+    centerX /= controlPoints.size();
+    centerY /= controlPoints.size();
+
+    // Appliquer le scaling par rapport au centre
+    for (auto& point : controlPoints) {
+        point.x = centerX + (point.x - centerX) * sx;
+        point.y = centerY + (point.y - centerY) * sy;
+    }
+
+    recalculateCurves();
+    updateBuffers();
+}
+
+void BezierCurve::rotate(float angle) {
+    // Convertir l'angle en radians
+    float radians = angle * M_PI / 180.0f;
+    float cosA = cos(radians);
+    float sinA = sin(radians);
+
+    // Calculer le centre du polygone de contrôle
+    float centerX = 0.0f, centerY = 0.0f;
+    for (const auto& point : controlPoints) {
+        centerX += point.x;
+        centerY += point.y;
+    }
+    centerX /= controlPoints.size();
+    centerY /= controlPoints.size();
+
+    // Appliquer la rotation par rapport au centre
+    for (auto& point : controlPoints) {
+        // Translater au centre
+        float x = point.x - centerX;
+        float y = point.y - centerY;
+
+        // Appliquer la rotation
+        float newX = x * cosA - y * sinA;
+        float newY = x * sinA + y * cosA;
+
+        // Translater de retour
+        point.x = newX + centerX;
+        point.y = newY + centerY;
+    }
+
+    recalculateCurves();
+    updateBuffers();
+}
+
+void BezierCurve::shear(float shx, float shy) {
+    // Calculer le centre du polygone de contrôle
+    float centerX = 0.0f, centerY = 0.0f;
+    for (const auto& point : controlPoints) {
+        centerX += point.x;
+        centerY += point.y;
+    }
+    centerX /= controlPoints.size();
+    centerY /= controlPoints.size();
+
+    // Appliquer le cisaillement par rapport au centre
+    for (auto& point : controlPoints) {
+        float dx = point.x - centerX;
+        float dy = point.y - centerY;
+
+        point.x = centerX + dx + shx * dy;
+        point.y = centerY + dy + shy * dx;
+    }
+
+    recalculateCurves();
+    updateBuffers();
+}
+
+// Méthode pour dupliquer un point de contrôle (multiplicité)
+void BezierCurve::duplicateControlPoint(int index) {
+    if (index >= 0 && index < controlPoints.size()) {
+        Point p = controlPoints[index];
+        // Insérer le point dupliqué après le point original
+        controlPoints.insert(controlPoints.begin() + index + 1, p);
+
+        // Régénérer le triangle de Pascal si nécessaire
+        if (pascalTriangle.size() < controlPoints.size()) {
+            generatePascalTriangle(controlPoints.size() - 1);
+        }
+
+        recalculateCurves();
+        updateBuffers();
+    }
+}
+
+// Méthodes pour l'enveloppe convexe
+int BezierCurve::orientation(const Point& p, const Point& q, const Point& r) const {
+    float val = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+
+    if (fabs(val) < 1e-6) return 0;  // Colinéaire
+    return (val > 0) ? 1 : 2;  // Sens horaire ou anti-horaire
+}
+
+std::vector<Point> BezierCurve::computeConvexHull() const {
+    std::vector<Point> hull;
+
+    // Besoin d'au moins 3 points pour former une enveloppe convexe
+    if (controlPoints.size() < 3) {
+        return controlPoints;  // Retourner tous les points
+    }
+
+    // Trouver le point le plus à gauche
+    int leftmost = 0;
+    for (int i = 1; i < controlPoints.size(); i++) {
+        if (controlPoints[i].x < controlPoints[leftmost].x) {
+            leftmost = i;
+        }
+    }
+
+    int p = leftmost;
+    int q;
+
+    // Algorithme de Jarvis (marche du cadeau)
+    do {
+        hull.push_back(controlPoints[p]);
+
+        q = (p + 1) % controlPoints.size();
+
+        for (int i = 0; i < controlPoints.size(); i++) {
+            if (orientation(controlPoints[p], controlPoints[i], controlPoints[q]) == 2) {
+                q = i;
+            }
+        }
+
+        p = q;
+
+    } while (p != leftmost);
+
+    return hull;
+}
+
+bool BezierCurve::intersectsWithCurve(const BezierCurve& other) const {
+    // Calculer les enveloppes convexes des deux courbes
+    std::vector<Point> hull1 = computeConvexHull();
+    std::vector<Point> hull2 = other.computeConvexHull();
+
+    // Vérifier si les deux enveloppes convexes s'intersectent
+    // Implémentation simple : vérifier si l'un des segments de hull1 intersecte
+    // l'un des segments de hull2
+
+    for (int i = 0; i < hull1.size(); i++) {
+        int next_i = (i + 1) % hull1.size();
+
+        for (int j = 0; j < hull2.size(); j++) {
+            int next_j = (j + 1) % hull2.size();
+
+            // Vérifier si les segments (hull1[i], hull1[next_i]) et (hull2[j], hull2[next_j]) s'intersectent
+            int o1 = orientation(hull1[i], hull1[next_i], hull2[j]);
+            int o2 = orientation(hull1[i], hull1[next_i], hull2[next_j]);
+            int o3 = orientation(hull2[j], hull2[next_j], hull1[i]);
+            int o4 = orientation(hull2[j], hull2[next_j], hull1[next_i]);
+
+            // Si les orientations sont différentes, les segments s'intersectent
+            if (o1 != o2 && o3 != o4) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+// Méthodes pour le raccordement de courbes
+void BezierCurve::joinC0(BezierCurve& other) {
+    if (controlPoints.empty() || other.controlPoints.empty()) {
+        return;
+    }
+
+    // Raccordement C0 : le dernier point de cette courbe est égal au premier point de l'autre courbe
+    Point lastPoint = controlPoints.back();
+    other.controlPoints[0] = lastPoint;
+
+    other.recalculateCurves();
+    other.updateBuffers();
+}
+
+void BezierCurve::joinC1(BezierCurve& other) {
+    if (controlPoints.size() < 2 || other.controlPoints.size() < 2) {
+        return;
+    }
+
+    // Raccordement C0
+    joinC0(other);
+
+    // Raccordement C1 : les vecteurs tangents aux points de jonction sont colinéaires
+    // Nous alignons le deuxième point de la seconde courbe avec la tangente de la première
+
+    // Vecteur tangent à la fin de la première courbe
+    Point tangent1 = controlPoints[controlPoints.size() - 1] - controlPoints[controlPoints.size() - 2];
+
+    // Calculer la distance du deuxième point de la seconde courbe par rapport au point de jonction
+    Point p0 = other.controlPoints[0];
+    Point p1 = other.controlPoints[1];
+    float distance = p0.distanceTo(p1);
+
+    // Calculer le nouveau deuxième point pour maintenir la même distance mais suivre la tangente
+    Point newP1 = p0 + tangent1 * (distance / tangent1.distanceTo(Point(0, 0)));
+
+    other.controlPoints[1] = newP1;
+
+    other.recalculateCurves();
+    other.updateBuffers();
+}
+
+void BezierCurve::joinC2(BezierCurve& other) {
+    if (controlPoints.size() < 3 || other.controlPoints.size() < 3) {
+        return;
+    }
+
+    // Raccordement C1
+    joinC1(other);
+
+    // Raccordement C2 : continuité de la courbure au point de jonction
+    // Nous devons ajuster le troisième point de la seconde courbe
+
+    // Pour une courbe de Bézier cubique, la courbure dépend des trois premiers points
+    Point p0 = other.controlPoints[0];
+    Point p1 = other.controlPoints[1];
+
+    // Pour une continuité C2, la formule est complexe mais peut être simplifiée
+    // dans le cas des courbes de Bézier. Nous utilisons une approximation :
+
+    // Dans la première courbe
+    Point q0 = controlPoints[controlPoints.size() - 3];
+    Point q1 = controlPoints[controlPoints.size() - 2];
+    Point q2 = controlPoints[controlPoints.size() - 1];
+
+    // Calculer le nouveau troisième point pour la continuité C2
+    // Formule simplifiée : p2 = 2*p1 - p0 + (q2 - 2*q1 + q0)
+    Point newP2 = p1 * 2.0f - p0 + (q2 - q1 * 2.0f + q0);
+
+    if (other.controlPoints.size() > 2) {
+        other.controlPoints[2] = newP2;
+    } else {
+        other.controlPoints.push_back(newP2);
+    }
+
+    other.recalculateCurves();
+    other.updateBuffers();
 }

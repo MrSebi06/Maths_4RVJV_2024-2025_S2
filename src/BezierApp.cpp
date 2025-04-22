@@ -1,193 +1,309 @@
 ﻿#include "../include/BezierApp.h"
 #include <iostream>
+#include <algorithm>
 
-// Initialisation du singleton
-BezierApp* BezierApp::instance = nullptr;
-BezierApp::BezierApp() : window(nullptr), windowWidth(800),
-                        windowHeight(600), shader(nullptr) {
-}
+BezierApp::BezierApp(const char* title, int width, int height)
+    : width(width), height(height), currentMode(Mode::ADD_CONTROL_POINTS),
+      selectedCurveIterator(curves.end()), selectedPointIndex(-1) {
 
-BezierApp::~BezierApp() {
-        delete shader;
-    glfwTerminate();
-}
-
-BezierApp* BezierApp::getInstance() {
-    if (instance == nullptr) {
-        instance = new BezierApp();
-    }
-    return instance;
-}
-
-bool BezierApp::initialize() {
-    // Initialiser GLFW
+    // Initialisation de GLFW
     if (!glfwInit()) {
-        std::cerr << "Failed to initialize GLFW" << std::endl;
-        return false;
+        std::cerr << "Échec de l'initialisation de GLFW" << std::endl;
+        exit(EXIT_FAILURE);
     }
-    
-    // Configurer GLFW
+
+    // Configuration de GLFW
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    
-    // create window
-    window = glfwCreateWindow(windowWidth, windowHeight, "Courbes de Bezier - OpenGL", nullptr, nullptr);
+
+    // Création de la fenêtre
+    window = glfwCreateWindow(width, height, title, nullptr, nullptr);
     if (!window) {
-        std::cerr << "Failed to create GLFW window" << std::endl;
+        std::cerr << "Échec de la création de la fenêtre GLFW" << std::endl;
         glfwTerminate();
-        return false;
+        exit(EXIT_FAILURE);
     }
-    
+
     glfwMakeContextCurrent(window);
-    
-    // Init GLEW
-    glewExperimental = GL_TRUE;
-    if (glewInit() != GLEW_OK) {
-        std::cerr << "Failed to initialize GLEW" << std::endl;
-        return false;
+
+    // Initialisation de GLEW
+    GLenum err = glewInit();
+    if (err != GLEW_OK) {
+        std::cerr << "Échec de l'initialisation de GLEW: " << glewGetErrorString(err) << std::endl;
+        exit(EXIT_FAILURE);
     }
-    
-    // Configurer le viewport
-    glViewport(0, 0, windowWidth, windowHeight);
-    
-    // Charger les shaders
-    try {
-        shader = new Shader("shaders/vertex.glsl", "shaders/fragment.glsl");
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to load shaders: " << e.what() << std::endl;
-        return false;
-    }
-    
-    // Configurer les callbacks
-    glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
-    glfwSetMouseButtonCallback(window, mouseButtonCallback);
-    glfwSetKeyCallback(window, keyCallback);
-    
-    // Configurer OpenGL
-    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);  // Fond blanc
-    
-    return true;
+
+    // Configuration du viewport
+    glViewport(0, 0, width, height);
+
+    // Création du shader
+    shader = new Shader("../shaders/basic.vs.glsl", "../shaders/basic.fs.glsl");
+
+    // Configuration des callbacks
+    glfwSetWindowUserPointer(window, this);
+
+    glfwSetMouseButtonCallback(window, [](GLFWwindow* window, int button, int action, int mods) {
+        BezierApp* app = static_cast<BezierApp*>(glfwGetWindowUserPointer(window));
+        app->mouseButtonCallback(button, action, mods);
+    });
+
+    glfwSetKeyCallback(window, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
+        BezierApp* app = static_cast<BezierApp*>(glfwGetWindowUserPointer(window));
+        app->keyCallback(key, scancode, action, mods);
+    });
+
+    // Création de la première courbe vide
+    createNewCurve();
+}
+
+BezierApp::~BezierApp() {
+    delete shader;
+    glfwDestroyWindow(window);
+    glfwTerminate();
 }
 
 void BezierApp::run() {
-    // Boucle principale
     while (!glfwWindowShouldClose(window)) {
-        // Traiter les événements
-        glfwPollEvents();
-        
-        // Effacer l'écran
-        glClear(GL_COLOR_BUFFER_BIT);
-        
-        // Configurer le shader pour coordonnées normalisées
-        shader->use();
-        
-        // Transformation pour adapter les coordonnées de la fenêtre
-        // (-1, 1) en OpenGL à (0, windowWidth) et (0, windowHeight)
-        float scaleX = 2.0f / windowWidth;
-        float scaleY = 2.0f / windowHeight;
-        shader->setVec2("scale", scaleX, -scaleY);  // Y inversé car OpenGL a l'origine en bas
-        shader->setVec2("translate", -1.0f, 1.0f);
-        
-        // Dessiner la courbe de Bézier
-        bezier.draw(*shader);
-        
-        // Draw text (instructions, Info, etc.)
-        renderText();
-        
-        // exchange buffers
+        processInput();
+        render();
+
         glfwSwapBuffers(window);
+        glfwPollEvents();
     }
 }
 
-void BezierApp::renderText() {
-    // Note: Pour simplifier, cette implémentation n'inclut pas le rendu de texte.
-    // Le rendu de texte en OpenGL moderne est complexe et nécessiterait une bibliothèque
-    // comme FreeType. Pour l'instant, on affiche les informations dans la console.
-    
-    // Afficher les infos dans la console à chaque changement significatif
-    static int lastPointCount = -1;
-    static float lastStep = -1.0f;
-    static bool lastDirectMethod = false;
-    static bool lastDeCasteljau = false;
-    
-    if (lastPointCount != bezier.getControlPointCount() ||
-        lastStep != bezier.getStep() ||
-        lastDirectMethod != bezier.isShowingDirectMethod() ||
-        lastDeCasteljau != bezier.isShowingDeCasteljau()) {
-        
-        std::cout << "\n--- État actuel ---" << std::endl;
-        std::cout << "Points de contrôle: " << bezier.getControlPointCount() << std::endl;
-        std::cout << "Pas: " << bezier.getStep() << std::endl;
-        std::cout << "Méthode directe: " << (bezier.isShowingDirectMethod() ? "Activée" : "Désactivée") << std::endl;
-        std::cout << "De Casteljau: " << (bezier.isShowingDeCasteljau() ? "Activée" : "Désactivée") << std::endl;
-        std::cout << "-------------------" << std::endl;
-        
-        lastPointCount = bezier.getControlPointCount();
-        lastStep = bezier.getStep();
-        lastDirectMethod = bezier.isShowingDirectMethod();
-        lastDeCasteljau = bezier.isShowingDeCasteljau();
+void BezierApp::processInput() {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+        glfwSetWindowShouldClose(window, true);
     }
-}
 
-// Callbacks statiques
-void BezierApp::framebufferSizeCallback(GLFWwindow* window, int width, int height) {
-    BezierApp* app = getInstance();
-    app->windowWidth = width;
-    app->windowHeight = height;
-    glViewport(0, 0, width, height);
-}
-
-void BezierApp::mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
-    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-        BezierApp* app = getInstance();
+    // Déplacement d'un point de contrôle sélectionné avec la souris
+    if (currentMode == Mode::EDIT_CONTROL_POINTS && selectedPointIndex != -1 && selectedCurveIterator != curves.end()) {
         double xpos, ypos;
         glfwGetCursorPos(window, &xpos, &ypos);
-        
-        app->bezier.addControlPoint(xpos, ypos);
-        app->bezier.recalculateCurves();
+
+        // Convertir les coordonnées de la souris en coordonnées OpenGL
+        float x = (2.0f * xpos) / width - 1.0f;
+        float y = 1.0f - (2.0f * ypos) / height;
+
+        // Déplacer le point de contrôle sélectionné
+        selectedCurveIterator->updateControlPoint(selectedPointIndex, x, y);
     }
 }
 
-void BezierApp::keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-    if (action == GLFW_PRESS) {
-        BezierApp* app = getInstance();
-        BezierCurve& bezier = app->bezier;
-        
-        switch (key) {
-            case GLFW_KEY_1:
-                bezier.toggleDirectMethod();
-                break;
-            case GLFW_KEY_2:
-                bezier.toggleDeCasteljau();
-                break;
-            case GLFW_KEY_3:
-                bezier.showBoth();
-                break;
-            case GLFW_KEY_C:
-                bezier.clearControlPoints();
-                break;
-            case GLFW_KEY_EQUAL:  // Touche '+'
-                bezier.decreaseStep();  // Diminuer le pas = augmenter la précision
-                break;
-            case GLFW_KEY_MINUS:  // Touche '-'
-                bezier.increaseStep();  // Augmenter le pas = diminuer la précision
-                break;
-            case GLFW_KEY_ESCAPE:
-                glfwSetWindowShouldClose(window, GLFW_TRUE);
-                break;
+void BezierApp::render() {
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Dessiner toutes les courbes
+    for (auto& curve : curves) {
+        curve.draw(*shader);
+    }
+
+    // Afficher le menu à l'écran
+    renderMenu();
+}
+
+void BezierApp::renderMenu() {
+    // Implémentation simple du menu - à améliorer avec une bibliothèque d'interface utilisateur
+    // Pour l'instant, nous affichons les commandes dans la console
+    if (menuNeedsUpdate) {
+        std::cout << "\n=== Menu des commandes ===" << std::endl;
+        std::cout << "A: Mode ajout de points" << std::endl;
+        std::cout << "E: Mode édition de points" << std::endl;
+        std::cout << "N: Nouvelle courbe" << std::endl;
+        std::cout << "D: Supprimer la courbe courante" << std::endl;
+        std::cout << "+/-: Augmenter/diminuer le pas" << std::endl;
+        std::cout << "1: Afficher/masquer courbe (méthode directe)" << std::endl;
+        std::cout << "2: Afficher/masquer courbe (De Casteljau)" << std::endl;
+        std::cout << "3: Afficher les deux courbes" << std::endl;
+        std::cout << "T: Appliquer une translation" << std::endl;
+        std::cout << "S: Appliquer un scaling" << std::endl;
+        std::cout << "R: Appliquer une rotation" << std::endl;
+        std::cout << "C: Appliquer un cisaillement" << std::endl;
+        std::cout << "Tab: Passer à la courbe suivante" << std::endl;
+        std::cout << "=========================" << std::endl;
+
+        menuNeedsUpdate = false;
+    }
+}
+
+void BezierApp::mouseButtonCallback(int button, int action, int mods) {
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+        double xpos, ypos;
+        glfwGetCursorPos(window, &xpos, &ypos);
+
+        // Convertir les coordonnées de la souris en coordonnées OpenGL
+        float x = (2.0f * xpos) / width - 1.0f;
+        float y = 1.0f - (2.0f * ypos) / height;
+
+        if (currentMode == Mode::ADD_CONTROL_POINTS && selectedCurveIterator != curves.end()) {
+            selectedCurveIterator->addControlPoint(x, y);
+            std::cout << "Point de contrôle ajouté: (" << x << ", " << y << ")" << std::endl;
+        }
+        else if (currentMode == Mode::EDIT_CONTROL_POINTS) {
+            // Sélectionner le point de contrôle le plus proche
+            selectNearestControlPoint(x, y);
+        }
+    }
+    else if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
+        // Désélectionner le point lors du relâchement du bouton
+        if (currentMode == Mode::EDIT_CONTROL_POINTS) {
+            selectedPointIndex = -1;
         }
     }
 }
 
-BezierCurve& BezierApp::getBezierCurve() {
-    return bezier;
+void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
+    if (action == GLFW_PRESS) {
+        switch (key) {
+            case GLFW_KEY_A:
+                currentMode = Mode::ADD_CONTROL_POINTS;
+                std::cout << "Mode: Ajout de points de contrôle" << std::endl;
+                break;
+
+            case GLFW_KEY_E:
+                currentMode = Mode::EDIT_CONTROL_POINTS;
+                std::cout << "Mode: Édition de points de contrôle" << std::endl;
+                break;
+
+            case GLFW_KEY_N:
+                createNewCurve();
+                std::cout << "Nouvelle courbe créée" << std::endl;
+                break;
+
+            case GLFW_KEY_D:
+                deleteCurve();
+                break;
+
+            case GLFW_KEY_EQUAL: // Touche '+'
+                if (selectedCurveIterator != curves.end()) {
+                    selectedCurveIterator->increaseStep();
+                }
+                break;
+
+            case GLFW_KEY_MINUS: // Touche '-'
+                if (selectedCurveIterator != curves.end()) {
+                    selectedCurveIterator->decreaseStep();
+                }
+                break;
+
+            case GLFW_KEY_1:
+                if (selectedCurveIterator != curves.end()) {
+                    selectedCurveIterator->toggleDirectMethod();
+                }
+                break;
+
+            case GLFW_KEY_2:
+                if (selectedCurveIterator != curves.end()) {
+                    selectedCurveIterator->toggleDeCasteljau();
+                }
+                break;
+
+            case GLFW_KEY_3:
+                if (selectedCurveIterator != curves.end()) {
+                    selectedCurveIterator->showBoth();
+                }
+                break;
+
+            case GLFW_KEY_TAB:
+                nextCurve();
+                break;
+
+            case GLFW_KEY_T:
+                // Appliquer une translation
+                if (selectedCurveIterator != curves.end()) {
+                    float dx = 0.1f; // À ajuster
+                    float dy = 0.1f; // À ajuster
+                    selectedCurveIterator->translate(dx, dy);
+                }
+                break;
+
+            case GLFW_KEY_S:
+                // Appliquer un scaling
+                if (selectedCurveIterator != curves.end()) {
+                    float sx = 1.1f; // À ajuster
+                    float sy = 1.1f; // À ajuster
+                    selectedCurveIterator->scale(sx, sy);
+                }
+                break;
+
+            case GLFW_KEY_R:
+                // Appliquer une rotation
+                if (selectedCurveIterator != curves.end()) {
+                    float angle = 15.0f; // Rotation de 15 degrés
+                    selectedCurveIterator->rotate(angle);
+                }
+                break;
+
+            case GLFW_KEY_C:
+                // Appliquer un cisaillement
+                if (selectedCurveIterator != curves.end()) {
+                    float shx = 0.1f; // À ajuster
+                    float shy = 0.0f; // À ajuster
+                    selectedCurveIterator->shear(shx, shy);
+                }
+                break;
+        }
+
+        menuNeedsUpdate = true;
+    }
 }
 
-int BezierApp::getWidth() const {
-    return windowWidth;
+void BezierApp::createNewCurve() {
+    curves.emplace_back();
+    selectedCurveIterator = std::prev(curves.end());
+    std::cout << "Nouvelle courbe sélectionnée. Total: " << curves.size() << std::endl;
 }
 
-int BezierApp::getHeight() const {
-    return windowHeight;
+void BezierApp::deleteCurve() {
+    if (curves.empty()) {
+        std::cout << "Aucune courbe à supprimer" << std::endl;
+        return;
+    }
+
+    if (selectedCurveIterator != curves.end()) {
+        auto nextIterator = std::next(selectedCurveIterator);
+        if (nextIterator == curves.end()) {
+            nextIterator = curves.begin();
+        }
+
+        curves.erase(selectedCurveIterator);
+
+        if (curves.empty()) {
+            selectedCurveIterator = curves.end();
+            std::cout << "Toutes les courbes ont été supprimées" << std::endl;
+        } else {
+            selectedCurveIterator = nextIterator;
+            std::cout << "Courbe supprimée. Courbe suivante sélectionnée." << std::endl;
+        }
+    }
+}
+
+void BezierApp::nextCurve() {
+    if (curves.empty()) {
+        std::cout << "Aucune courbe disponible" << std::endl;
+        return;
+    }
+
+    if (selectedCurveIterator == curves.end()) {
+        selectedCurveIterator = curves.begin();
+    } else {
+        selectedCurveIterator++;
+        if (selectedCurveIterator == curves.end()) {
+            selectedCurveIterator = curves.begin();
+        }
+    }
+
+    std::cout << "Courbe suivante sélectionnée" << std::endl;
+}
+
+void BezierApp::selectNearestControlPoint(float x, float y) {
+    if (selectedCurveIterator == curves.end()) return;
+
+    selectedPointIndex = selectedCurveIterator->getNearestControlPoint(x, y);
+    if (selectedPointIndex != -1) {
+        std::cout << "Point de contrôle sélectionné: " << selectedPointIndex << std::endl;
+    }
 }

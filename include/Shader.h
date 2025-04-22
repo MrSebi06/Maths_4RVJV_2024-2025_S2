@@ -9,16 +9,15 @@
 
 class Shader {
 public:
-    // ID du programme shader
     unsigned int ID;
 
-    // Constructeur qui lit et construit le shader
+    // Constructeur : lit et construit le shader
     Shader(const char* vertexPath, const char* fragmentPath);
 
     // Activer le shader
     void use();
 
-    // Fonctions pour définir des uniformes
+    // Fonctions utilitaires pour définir des uniformes
     void setBool(const std::string &name, bool value) const;
     void setInt(const std::string &name, int value) const;
     void setFloat(const std::string &name, float value) const;

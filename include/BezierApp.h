@@ -3,43 +3,46 @@
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
-#include "BezierCurve.h"
-#include "Shader.h"
+#include <vector>
+#include <list>
+#include "../include/Shader.h"
+#include "../include/BezierCurve.h"
 
 class BezierApp {
-private:
-    static BezierApp* instance;
-
-    GLFWwindow* window;
-    int windowWidth;
-    int windowHeight;
-
-    BezierCurve bezier;
-    Shader* shader;
-
-    // private constructer (singleton)
-    BezierApp();
-
-    // Méthodes pour gérer le texte (rendu en bitmap)
-    void renderText();
-
-    // Callbacks GLFW
-    static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
-    static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
-    static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
-
 public:
+    enum class Mode {
+        ADD_CONTROL_POINTS,
+        EDIT_CONTROL_POINTS
+    };
+
+    BezierApp(const char* title, int width, int height);
     ~BezierApp();
 
-    static BezierApp* getInstance();
-
-    bool initialize();
     void run();
 
-    // Accesseurs
-    BezierCurve& getBezierCurve();
-    int getWidth() const;
-    int getHeight() const;
+private:
+    int width, height;
+    GLFWwindow* window;
+    Shader* shader;
+
+    std::list<BezierCurve> curves;
+    std::list<BezierCurve>::iterator selectedCurveIterator;
+
+    Mode currentMode;
+    int selectedPointIndex;
+    bool menuNeedsUpdate = true;
+
+    void processInput();
+    void render();
+    void renderMenu();
+
+    void mouseButtonCallback(int button, int action, int mods);
+    void keyCallback(int key, int scancode, int action, int mods);
+
+    void createNewCurve();
+    void deleteCurve();
+    void nextCurve();
+    void selectNearestControlPoint(float x, float y);
 };
 
 #endif // BEZIER_APP_H
