@@ -1,10 +1,12 @@
 ﻿#include "../include/BezierApp.h"
 #include <iostream>
+#include "../include/CyriusBeck.h"
 #include <algorithm>
 
 BezierApp::BezierApp(const char* title, int width, int height)
     : width(width), height(height), currentMode(Mode::ADD_CONTROL_POINTS),
-      selectedCurveIterator(curves.end()), selectedPointIndex(-1) {
+      selectedCurveIterator(curves.end()), selectedPointIndex(-1),
+      selectedClipPointIndex(-1), enableClipping(false) {
 
     // Initialisation de GLFW
     if (!glfwInit()) {
@@ -62,6 +64,11 @@ BezierApp::BezierApp(const char* title, int width, int height)
         app->keyCallback(key, scancode, action, mods);
     });
 
+    glfwSetFramebufferSizeCallback(window, [](GLFWwindow* window, int width, int height) {
+        BezierApp* app = static_cast<BezierApp*>(glfwGetWindowUserPointer(window));
+        app->framebufferSizeCallback(width, height);
+    });
+
     // Création de la première courbe vide
     createNewCurve();
 }
@@ -93,22 +100,48 @@ void BezierApp::run() {
     }
 }
 
+void BezierApp::framebufferSizeCallback(int newWidth, int newHeight) {
+    width = newWidth;
+    height = newHeight;
+    glViewport(0, 0, width, height);
+
+    // Si nécessaire, recalculer et redessiner toutes les courbes
+    for (auto& curve : curves) {
+        curve.recalculateCurves();
+    }
+
+    std::cout << "Fenêtre redimensionnée: " << width << "x" << height << std::endl;
+}
+
 void BezierApp::processInput() {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
     }
+    // Récupérer la position de la souris
+    double xpos, ypos;
+    glfwGetCursorPos(window, &xpos, &ypos);
+
+    // Convertir les coordonnées de la souris en coordonnées OpenGL
+    float x = (2.0f * xpos) / width - 1.0f;
+    float y = 1.0f - (2.0f * ypos) / height;
 
     // Déplacement d'un point de contrôle sélectionné avec la souris
     if (currentMode == Mode::EDIT_CONTROL_POINTS && selectedPointIndex != -1 && selectedCurveIterator != curves.end()) {
-        double xpos, ypos;
-        glfwGetCursorPos(window, &xpos, &ypos);
-
-        // Convertir les coordonnées de la souris en coordonnées OpenGL
-        float x = (2.0f * xpos) / width - 1.0f;
-        float y = 1.0f - (2.0f * ypos) / height;
-
         // Déplacer le point de contrôle sélectionné
         selectedCurveIterator->updateControlPoint(selectedPointIndex, x, y);
+    }
+    // Déplacement d'un point de la fenêtre de découpage
+    else if (currentMode == Mode::EDIT_CLIP_WINDOW && selectedClipPointIndex != -1) {
+        // Déplacer le point de la fenêtre sélectionné
+        clipWindow[selectedClipPointIndex].x = x;
+        clipWindow[selectedClipPointIndex].y = y;
+
+        // Vérifier si la fenêtre est toujours convexe
+        if (clipWindow.size() >= 3) {
+            if (!CyrusBeck::isPolygonConvex(clipWindow)) {
+                std::cout << "Attention: La fenêtre n'est pas convexe!" << std::endl;
+            }
+        }
     }
 }
 
@@ -116,14 +149,60 @@ void BezierApp::render() {
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Dessiner toutes les courbes
+    // Dessiner toutes les courbes avec ou sans découpage
     for (auto& curve : curves) {
-        curve.draw(*shader);
+        if (enableClipping && clipWindow.size() >= 3 && CyrusBeck::isPolygonConvex(clipWindow)) {
+            curve.draw(*shader, &clipWindow);
+        } else {
+            curve.draw(*shader);
+        }
+    }
+
+    // Si on est en mode création ou édition de la fenêtre, dessiner la fenêtre
+    if ((currentMode == Mode::CREATE_CLIP_WINDOW || currentMode == Mode::EDIT_CLIP_WINDOW)
+        || (enableClipping && !clipWindow.empty())) {
+
+        shader->Begin();
+
+        // Dessiner les points de la fenêtre
+        shader->SetUniform("color", 1.0f, 1.0f, 0.0f);  // Jaune
+
+        // Créer un VAO et VBO temporaires pour les points
+        GLuint pointsVAO, pointsVBO;
+        glGenVertexArrays(1, &pointsVAO);
+        glGenBuffers(1, &pointsVBO);
+
+        glBindVertexArray(pointsVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, pointsVBO);
+        glBufferData(GL_ARRAY_BUFFER, clipWindow.size() * sizeof(Point), clipWindow.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Point), (void*)0);
+        glEnableVertexAttribArray(0);
+
+        glPointSize(7.0f);
+        glDrawArrays(GL_POINTS, 0, clipWindow.size());
+
+        // Dessiner les lignes de la fenêtre
+        if (clipWindow.size() >= 2) {
+            if (CyrusBeck::isPolygonConvex(clipWindow)) {
+                shader->SetUniform("color", 0.7f, 0.7f, 0.0f);  // Jaune foncé si convexe
+            } else {
+                shader->SetUniform("color", 1.0f, 0.0f, 0.0f);  // Rouge si non convexe
+            }
+
+            glDrawArrays(GL_LINE_LOOP, 0, clipWindow.size());
+        }
+
+        // Nettoyer
+        glDeleteVertexArrays(1, &pointsVAO);
+        glDeleteBuffers(1, &pointsVBO);
+
+        shader->End();
     }
 
     // Afficher le menu à l'écran
     renderMenu();
 }
+
 
 void BezierApp::renderMenu() {
     // Implémentation simple du menu - à améliorer avec une bibliothèque d'interface utilisateur
@@ -143,6 +222,14 @@ void BezierApp::renderMenu() {
         std::cout << "R: Appliquer une rotation" << std::endl;
         std::cout << "C: Appliquer un cisaillement" << std::endl;
         std::cout << "Tab: Passer à la courbe suivante" << std::endl;
+
+        // Ajouter les nouvelles commandes de fenêtrage
+        std::cout << "W: Mode création de fenêtre de découpage" << std::endl;
+        std::cout << "F: Mode édition de fenêtre de découpage" << std::endl;
+        std::cout << "X: Activer/désactiver le découpage" << std::endl;
+        std::cout << "Delete: Supprimer un point sélectionné" << std::endl;
+        std::cout << "Backspace: Effacer la fenêtre de découpage" << std::endl;
+
         std::cout << "=========================" << std::endl;
 
         menuNeedsUpdate = false;
@@ -158,123 +245,190 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
         float x = (2.0f * xpos) / width - 1.0f;
         float y = 1.0f - (2.0f * ypos) / height;
 
-        if (currentMode == Mode::ADD_CONTROL_POINTS && selectedCurveIterator != curves.end()) {
-            selectedCurveIterator->addControlPoint(x, y);
-            std::cout << "Point de contrôle ajouté: (" << x << ", " << y << ")" << std::endl;
-        }
-        else if (currentMode == Mode::EDIT_CONTROL_POINTS) {
+        switch (currentMode) {
+        case Mode::ADD_CONTROL_POINTS:
+            if (selectedCurveIterator != curves.end()) {
+                selectedCurveIterator->addControlPoint(x, y);
+                std::cout << "Point de contrôle ajouté: (" << x << ", " << y << ")" << std::endl;
+            }
+            break;
+
+        case Mode::EDIT_CONTROL_POINTS:
             // Sélectionner le point de contrôle le plus proche
-            selectNearestControlPoint(x, y);
+                selectNearestControlPoint(x, y);
+            break;
+
+        case Mode::CREATE_CLIP_WINDOW:
+            // Ajouter un point à la fenêtre de découpage
+                clipWindow.push_back(Point(x, y));
+            std::cout << "Point de fenêtre ajouté: (" << x << ", " << y << ")" << std::endl;
+
+            // Vérifier si la fenêtre est convexe
+            if (clipWindow.size() >= 3) {
+                if (CyrusBeck::isPolygonConvex(clipWindow)) {
+                    std::cout << "La fenêtre est convexe." << std::endl;
+                } else {
+                    std::cout << "Attention: La fenêtre n'est pas convexe!" << std::endl;
+                }
+            }
+            break;
+
+        case Mode::EDIT_CLIP_WINDOW:
+            // Sélectionner le point de la fenêtre le plus proche
+                selectNearestClipPoint(x, y);
+            break;
         }
     }
     else if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
         // Désélectionner le point lors du relâchement du bouton
         if (currentMode == Mode::EDIT_CONTROL_POINTS) {
             selectedPointIndex = -1;
+        } else if (currentMode == Mode::EDIT_CLIP_WINDOW) {
+            selectedClipPointIndex = -1;
         }
     }
 }
 
 void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
     if (action == GLFW_PRESS) {
-        switch (key) {
-            case GLFW_KEY_A:
-                currentMode = Mode::ADD_CONTROL_POINTS;
-                std::cout << "Mode: Ajout de points de contrôle" << std::endl;
-                break;
+        switch (key)
+        {
+        case GLFW_KEY_A:
+            currentMode = Mode::ADD_CONTROL_POINTS;
+            std::cout << "Mode: Ajout de points de contrôle" << std::endl;
+            break;
 
-            case GLFW_KEY_E:
-                currentMode = Mode::EDIT_CONTROL_POINTS;
-                std::cout << "Mode: Édition de points de contrôle" << std::endl;
-                break;
+        case GLFW_KEY_E:
+            currentMode = Mode::EDIT_CONTROL_POINTS;
+            std::cout << "Mode: Édition de points de contrôle" << std::endl;
+            break;
 
-            case GLFW_KEY_N:
-                createNewCurve();
-                std::cout << "Nouvelle courbe créée" << std::endl;
-                break;
+        case GLFW_KEY_N:
+            createNewCurve();
+            std::cout << "Nouvelle courbe créée" << std::endl;
+            break;
 
-            case GLFW_KEY_D:
-                deleteCurve();
-                break;
+        case GLFW_KEY_D:
+            deleteCurve();
+            break;
 
-            case GLFW_KEY_EQUAL: // Touche '+'
-                if (selectedCurveIterator != curves.end()) {
-                    selectedCurveIterator->increaseStep();
-                }
-                break;
+        case GLFW_KEY_EQUAL: // Touche '+'
+            if (selectedCurveIterator != curves.end()) {
+                selectedCurveIterator->increaseStep();
+            }
+            break;
 
-            case GLFW_KEY_MINUS: // Touche '-'
-                if (selectedCurveIterator != curves.end()) {
-                    selectedCurveIterator->decreaseStep();
-                }
-                break;
+        case GLFW_KEY_MINUS: // Touche '-'
+            if (selectedCurveIterator != curves.end()) {
+                selectedCurveIterator->decreaseStep();
+            }
+            break;
 
-            case GLFW_KEY_1:
-                if (selectedCurveIterator != curves.end()) {
-                    selectedCurveIterator->toggleDirectMethod();
-                }
-                break;
+        case GLFW_KEY_1:
+            if (selectedCurveIterator != curves.end()) {
+                selectedCurveIterator->toggleDirectMethod();
+            }
+            break;
 
-            case GLFW_KEY_2:
-                if (selectedCurveIterator != curves.end()) {
-                    selectedCurveIterator->toggleDeCasteljau();
-                }
-                break;
+        case GLFW_KEY_2:
+            if (selectedCurveIterator != curves.end()) {
+                selectedCurveIterator->toggleDeCasteljau();
+            }
+            break;
 
-            case GLFW_KEY_3:
-                if (selectedCurveIterator != curves.end()) {
-                    selectedCurveIterator->showBoth();
-                }
-                break;
+        case GLFW_KEY_3:
+            if (selectedCurveIterator != curves.end()) {
+                selectedCurveIterator->showBoth();
+            }
+            break;
 
-            case GLFW_KEY_TAB:
-                nextCurve();
-                break;
+        case GLFW_KEY_TAB:
+            nextCurve();
+            break;
 
-            case GLFW_KEY_T:
-                // Appliquer une translation
+        case GLFW_KEY_T:
+            // Appliquer une translation
                 if (selectedCurveIterator != curves.end()) {
                     float dx = 0.1f; // À ajuster
                     float dy = 0.1f; // À ajuster
                     selectedCurveIterator->translate(dx, dy);
                 }
-                break;
+            break;
 
-            case GLFW_KEY_S:
-                // Appliquer un scaling
+        case GLFW_KEY_S:
+            // Appliquer un scaling
                 if (selectedCurveIterator != curves.end()) {
                     float sx = 1.1f; // À ajuster
                     float sy = 1.1f; // À ajuster
                     selectedCurveIterator->scale(sx, sy);
                 }
-                break;
+            break;
 
-            case GLFW_KEY_R:
-                // Appliquer une rotation
+        case GLFW_KEY_R:
+            // Appliquer une rotation
                 if (selectedCurveIterator != curves.end()) {
                     float angle = 15.0f; // Rotation de 15 degrés
                     selectedCurveIterator->rotate(angle);
                 }
-                break;
+            break;
 
-            case GLFW_KEY_C:
-                // Appliquer un cisaillement
+        case GLFW_KEY_C:
+            // Appliquer un cisaillement
                 if (selectedCurveIterator != curves.end()) {
                     float shx = 0.1f; // À ajuster
                     float shy = 0.0f; // À ajuster
                     selectedCurveIterator->shear(shx, shy);
                 }
-                break;
-        }
+            break;
 
+        case GLFW_KEY_W:  // W pour Window (fenêtre)
+            currentMode = Mode::CREATE_CLIP_WINDOW;
+            std::cout << "Mode: Création de la fenêtre de découpage" << std::endl;
+            break;
+
+        case GLFW_KEY_F:  // F pour Fenêtre
+            currentMode = Mode::EDIT_CLIP_WINDOW;
+            std::cout << "Mode: Édition de la fenêtre de découpage" << std::endl;
+            break;
+
+        case GLFW_KEY_X:  // X pour activer/désactiver le découpage
+            enableClipping = !enableClipping;
+            std::cout << "Découpage: " << (enableClipping ? "Activé" : "Désactivé") << std::endl;
+            break;
+
+        case GLFW_KEY_DELETE:
+            if (currentMode == Mode::EDIT_CLIP_WINDOW && selectedClipPointIndex != -1) {
+                // Supprimer un point de la fenêtre
+                clipWindow.erase(clipWindow.begin() + selectedClipPointIndex);
+                selectedClipPointIndex = -1;
+                std::cout << "Point de fenêtre supprimé" << std::endl;
+            } else if (currentMode == Mode::EDIT_CONTROL_POINTS && selectedPointIndex != -1 && selectedCurveIterator != curves.end()) {
+                // Supprimer un point de contrôle
+                selectedCurveIterator->removeControlPoint(selectedPointIndex);
+                selectedPointIndex = -1;
+                std::cout << "Point de contrôle supprimé" << std::endl;
+            }
+            break;
+
+        case GLFW_KEY_BACKSPACE:
+            clearClipWindow();
+            break;
+        }
         menuNeedsUpdate = true;
     }
 }
 
 void BezierApp::createNewCurve() {
+    // Ajouter une nouvelle courbe vide à la liste
     curves.emplace_back();
+
+    // Sélectionner la nouvelle courbe (la dernière de la liste)
     selectedCurveIterator = std::prev(curves.end());
-    std::cout << "Nouvelle courbe sélectionnée. Total: " << curves.size() << std::endl;
+
+    // Réinitialiser les indices de points sélectionnés
+    selectedPointIndex = -1;
+
+    std::cout << "Nouvelle courbe créée. Total: " << curves.size() << std::endl;
 }
 
 void BezierApp::deleteCurve() {
@@ -320,10 +474,45 @@ void BezierApp::nextCurve() {
 }
 
 void BezierApp::selectNearestControlPoint(float x, float y) {
+
     if (selectedCurveIterator == curves.end()) return;
 
     selectedPointIndex = selectedCurveIterator->getNearestControlPoint(x, y);
     if (selectedPointIndex != -1) {
         std::cout << "Point de contrôle sélectionné: " << selectedPointIndex << std::endl;
     }
+}
+
+void BezierApp::selectNearestClipPoint(float x, float y) {
+    if (clipWindow.empty()) {
+        selectedClipPointIndex = -1;
+        return;
+    }
+
+    Point p(x, y);
+    int nearestIndex = 0;
+    float minDistance = clipWindow[0].distanceTo(p);
+
+    for (int i = 1; i < clipWindow.size(); ++i) {
+        float distance = clipWindow[i].distanceTo(p);
+        if (distance < minDistance) {
+            minDistance = distance;
+            nearestIndex = i;
+        }
+    }
+
+    // Seuil de sélection (ajustable)
+    if (minDistance > 0.1f) {
+        selectedClipPointIndex = -1;  // Aucun point assez proche
+    } else {
+        selectedClipPointIndex = nearestIndex;
+        std::cout << "Point de fenêtre sélectionné: " << selectedClipPointIndex << std::endl;
+    }
+}
+
+// Ajouter cette méthode pour effacer la fenêtre de découpage
+void BezierApp::clearClipWindow() {
+    clipWindow.clear();
+    selectedClipPointIndex = -1;
+    std::cout << "Fenêtre de découpage effacée" << std::endl;
 }

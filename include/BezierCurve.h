@@ -5,6 +5,7 @@
 #include <GL/glew.h>
 #include "../include/GLShader.h"
 #include "../include/Point.h"
+#include "../include/CyriusBeck.h"
 
 class BezierCurve {
 public:
@@ -37,7 +38,8 @@ public:
     void showBoth();
     bool isShowingDirectMethod() const;
     bool isShowingDeCasteljau() const;
-    void draw(GLShader& shader);
+    //void draw(GLShader& shader);
+    void draw(GLShader& shader, const std::vector<Point>* clipWindow = nullptr);
 
     // Méthodes de transformation
     void translate(float dx, float dy);

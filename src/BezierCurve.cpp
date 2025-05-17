@@ -265,12 +265,12 @@ void BezierCurve::calculateDeCasteljau() {
     showDeCasteljau = true;
     updateBuffers();
 }
-void BezierCurve::draw(GLShader& shader) {
+void BezierCurve::draw(GLShader& shader, const std::vector<Point>* clipWindow) {
     shader.Begin();
 
     // Dessiner le polygone de contrôle (lignes bleues)
     if (controlPoints.size() >= 2) {
-        shader.SetUniform("color", 0.0f, 0.0f, 1.0f);  // Utiliser SetUniform au lieu de setVec3
+        shader.SetUniform("color", 0.0f, 0.0f, 1.0f);
         glBindVertexArray(controlPolygonVAO);
         glDrawArrays(GL_LINE_STRIP, 0, controlPoints.size());
 
@@ -281,26 +281,65 @@ void BezierCurve::draw(GLShader& shader) {
         glDrawArrays(GL_POINTS, 0, controlPoints.size());
     }
 
-    // Dessiner la courbe de Bézier (méthode directe)
-    if (showDirectMethod && directMethodPoints.size() >= 2) {
-        shader.SetUniform("color", 0.0f, 1.0f, 0.0f);
-        glBindVertexArray(directMethodVAO);
-        glDrawArrays(GL_LINE_STRIP, 0, directMethodPoints.size());
-    }
+    // Si une fenêtre de découpage est spécifiée et valide, appliquer l'algorithme de Cyrus-Beck
+    if (clipWindow && clipWindow->size() >= 3 && CyrusBeck::isPolygonConvex(*clipWindow)) {
+        // Utiliser les points calculés par la méthode directe ou De Casteljau
+        const std::vector<Point>& curvePoints = directMethodPoints.empty() ?
+                                              deCasteljauPoints : directMethodPoints;
 
-    // Dessiner la courbe de Bézier (méthode de De Casteljau)
-    if (showDeCasteljau && deCasteljauPoints.size() >= 2) {
-        if (showDirectMethod) {
-            shader.SetUniform("color", 1.0f, 0.0f, 1.0f);
-        } else {
-            shader.SetUniform("color", 0.0f, 1.0f, 0.0f);
+        if (!curvePoints.empty()) {
+            // Découper la courbe avec l'algorithme de Cyrus-Beck
+            std::vector<std::vector<Point>> clippedSegments =
+                CyrusBeck::clipCurveToWindow(curvePoints, *clipWindow);
+
+            // Dessiner chaque segment découpé
+            for (const auto& segment : clippedSegments) {
+                if (segment.size() >= 2) {
+                    // Créer un VAO et VBO temporaires pour chaque segment
+                    GLuint segmentVAO, segmentVBO;
+                    glGenVertexArrays(1, &segmentVAO);
+                    glGenBuffers(1, &segmentVBO);
+
+                    glBindVertexArray(segmentVAO);
+                    glBindBuffer(GL_ARRAY_BUFFER, segmentVBO);
+                    glBufferData(GL_ARRAY_BUFFER, segment.size() * sizeof(Point), segment.data(), GL_STATIC_DRAW);
+                    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Point), (void*)0);
+                    glEnableVertexAttribArray(0);
+
+                    // Dessiner le segment découpé
+                    shader.SetUniform("color", 0.0f, 1.0f, 1.0f); // Cyan
+                    glDrawArrays(GL_LINE_STRIP, 0, segment.size());
+
+                    // Nettoyer
+                    glDeleteVertexArrays(1, &segmentVAO);
+                    glDeleteBuffers(1, &segmentVBO);
+                }
+            }
         }
-        glBindVertexArray(deCasteljauVAO);
-        glDrawArrays(GL_LINE_STRIP, 0, deCasteljauPoints.size());
+    }
+    // Sinon, dessiner la courbe normalement
+    else {
+        // Dessiner la courbe de Bézier (méthode directe)
+        if (showDirectMethod && directMethodPoints.size() >= 2) {
+            shader.SetUniform("color", 0.0f, 1.0f, 0.0f);
+            glBindVertexArray(directMethodVAO);
+            glDrawArrays(GL_LINE_STRIP, 0, directMethodPoints.size());
+        }
+
+        // Dessiner la courbe de Bézier (méthode de De Casteljau)
+        if (showDeCasteljau && deCasteljauPoints.size() >= 2) {
+            if (showDirectMethod) {
+                shader.SetUniform("color", 1.0f, 0.0f, 1.0f);
+            } else {
+                shader.SetUniform("color", 0.0f, 1.0f, 0.0f);
+            }
+            glBindVertexArray(deCasteljauVAO);
+            glDrawArrays(GL_LINE_STRIP, 0, deCasteljauPoints.size());
+        }
     }
 
     glBindVertexArray(0);
-    shader.End();  // Ajouter cette ligne pour désactiver le shader
+    shader.End();
 }
 
 void BezierCurve::toggleDirectMethod() {
