@@ -1,13 +1,22 @@
 ﻿#include "../include/BezierApp.h"
 #include <iostream>
+#include <cmath>
 #include "../include/CyriusBeck.h"
 #include <algorithm>
 #include "imgui.h"
 
+// Définition de M_PI si nécessaire
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 BezierApp::BezierApp(const char* title, int width, int height)
     : width(width), height(height), currentMode(Mode::ADD_CONTROL_POINTS),
       selectedCurveIterator(curves.end()), selectedPointIndex(-1),
-      selectedClipPointIndex(-1), enableClipping(false) {
+      selectedClipPointIndex(-1), enableClipping(false),
+      mouseX(0.0f), mouseY(0.0f), screenMouseX(0), screenMouseY(0),
+      isPointHovered(false), hoveredPointIndex(-1),
+      hoveredClipPointIndex(-1), cursorMode(CursorMode::HIDDEN) {
 
     // Initialisation de GLFW
     if (!glfwInit()) {
@@ -29,6 +38,9 @@ BezierApp::BezierApp(const char* title, int width, int height)
     }
 
     glfwMakeContextCurrent(window);
+
+    // Simplement cacher le curseur système
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
 
     // Initialisation de GLEW
     GLenum err = glewInit();
@@ -69,6 +81,15 @@ BezierApp::BezierApp(const char* title, int width, int height)
         app->framebufferSizeCallback(width, height);
     });
 
+    // Nouveau callback pour le mouvement du curseur
+    glfwSetCursorPosCallback(window, [](GLFWwindow* window, double xpos, double ypos) {
+        BezierApp* app = static_cast<BezierApp*>(glfwGetWindowUserPointer(window));
+        app->cursorPositionCallback(xpos, ypos);
+    });
+
+    // Création du VAO/VBO pour le curseur
+    setupCursorBuffers();
+
     // Création de la première courbe vide
     createNewCurve();
 
@@ -80,9 +101,93 @@ BezierApp::BezierApp(const char* title, int width, int height)
 }
 
 BezierApp::~BezierApp() {
+    // Nettoyer les ressources du curseur
+    glDeleteVertexArrays(1, &cursorVAO);
+    glDeleteBuffers(1, &cursorVBO);
+
     delete shader;
     glfwDestroyWindow(window);
     glfwTerminate();
+}
+
+void BezierApp::setupCursorBuffers() {
+    // Création du VAO/VBO pour le curseur personnalisé (croix)
+    glGenVertexArrays(1, &cursorVAO);
+    glGenBuffers(1, &cursorVBO);
+
+    // Les coordonnées pour dessiner une croix (elles seront mises à jour dynamiquement)
+    float cursorVertices[8] = {0}; // Initialiser avec des zéros
+
+    glBindVertexArray(cursorVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, cursorVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cursorVertices), cursorVertices, GL_DYNAMIC_DRAW); // DYNAMIC_DRAW car nous mettrons à jour souvent
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
+void BezierApp::mouseToOpenGL(double mouseX, double mouseY, float& oglX, float& oglY) const {
+    // Conversion simple des coordonnées de la souris en coordonnées OpenGL
+    oglX = (2.0f * static_cast<float>(mouseX) / static_cast<float>(width)) - 1.0f;
+    oglY = 1.0f - (2.0f * static_cast<float>(mouseY) / static_cast<float>(height));
+}
+
+void BezierApp::cursorPositionCallback(double xpos, double ypos) {
+    // Stocker les coordonnées écran
+    screenMouseX = xpos;
+    screenMouseY = ypos;
+
+    // Convertir en coordonnées OpenGL
+    mouseToOpenGL(xpos, ypos, mouseX, mouseY);
+
+    // Vérifier si un point est survolé
+    isPointHovered = checkPointHover(mouseX, mouseY);
+
+    // Vérifier si un point de découpage est survolé
+    if (!isPointHovered) {
+        checkClipPointHover(mouseX, mouseY);
+    }
+}
+
+bool BezierApp::checkPointHover(float x, float y) {
+    // Vérifie si un point de contrôle est survolé
+    hoveredPointIndex = -1;
+
+    if (selectedCurveIterator == curves.end()) return false;
+
+    // Vérifier chaque point de contrôle avec le padding de sélection
+    for (int i = 0; i < selectedCurveIterator->getControlPointCount(); i++) {
+        Point p = selectedCurveIterator->getControlPoint(i);
+        float distance = std::sqrt((p.x - x) * (p.x - x) + (p.y - y) * (p.y - y));
+
+        if (distance < selectionPadding) {
+            hoveredPointIndex = i;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool BezierApp::checkClipPointHover(float x, float y) {
+    // Vérifie si un point de découpage est survolé
+    hoveredClipPointIndex = -1;
+
+    if (clipWindow.empty()) return false;
+
+    // Vérifier chaque point de découpage avec le padding de sélection
+    for (int i = 0; i < clipWindow.size(); i++) {
+        Point p = clipWindow[i];
+        float distance = std::sqrt((p.x - x) * (p.x - x) + (p.y - y) * (p.y - y));
+
+        if (distance < selectionPadding) {
+            hoveredClipPointIndex = i;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void BezierApp::initCommandDescriptions() {
@@ -140,6 +245,7 @@ void BezierApp::run() {
         imguiManager.beginFrame();
 
         render();
+        renderCursor(); // Dessiner le curseur par-dessus tout
         renderMenu();
 
         // Terminer la frame ImGui
@@ -180,24 +286,19 @@ void BezierApp::processInput() {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
     }
-    // Récupérer la position de la souris
-    double xpos, ypos;
-    glfwGetCursorPos(window, &xpos, &ypos);
 
-    // Convertir les coordonnées de la souris en coordonnées OpenGL
-    float x = (2.0f * xpos) / width - 1.0f;
-    float y = 1.0f - (2.0f * ypos) / height;
+    // Utiliser les coordonnées mouseX et mouseY pour l'édition
 
     // Déplacement d'un point de contrôle sélectionné avec la souris
     if (currentMode == Mode::EDIT_CONTROL_POINTS && selectedPointIndex != -1 && selectedCurveIterator != curves.end()) {
         // Déplacer le point de contrôle sélectionné
-        selectedCurveIterator->updateControlPoint(selectedPointIndex, x, y);
+        selectedCurveIterator->updateControlPoint(selectedPointIndex, mouseX, mouseY);
     }
     // Déplacement d'un point de la fenêtre de découpage
     else if (currentMode == Mode::EDIT_CLIP_WINDOW && selectedClipPointIndex != -1) {
         // Déplacer le point de la fenêtre sélectionné
-        clipWindow[selectedClipPointIndex].x = x;
-        clipWindow[selectedClipPointIndex].y = y;
+        clipWindow[selectedClipPointIndex].x = mouseX;
+        clipWindow[selectedClipPointIndex].y = mouseY;
 
         // Vérifier si la fenêtre est toujours convexe
         if (clipWindow.size() >= 3) {
@@ -221,26 +322,87 @@ void BezierApp::render() {
         }
     }
 
+    // Dessiner les points de contrôle de la courbe sélectionnée avec mise en évidence des points survolés
+    if (selectedCurveIterator != curves.end()) {
+        shader->Begin();
+
+        // Configuration pour les points
+        glBindVertexArray(0); // Désactiver les VAOs précédents
+        glPointSize(10.0f); // Points plus visibles
+
+        // Dessiner chaque point individuellement pour appliquer des couleurs différentes
+        for (int i = 0; i < selectedCurveIterator->getControlPointCount(); i++) {
+            Point p = selectedCurveIterator->getControlPoint(i);
+
+            // Choisir la couleur en fonction de l'état du point
+            if (i == hoveredPointIndex) {
+                // Point survolé: orange vif
+                shader->SetUniform("color", 1.0f, 0.6f, 0.0f);
+            } else if (i == selectedPointIndex) {
+                // Point sélectionné: rouge
+                shader->SetUniform("color", 1.0f, 0.0f, 0.0f);
+            } else {
+                // Point normal: rouge plus sombre
+                shader->SetUniform("color", 0.8f, 0.0f, 0.0f);
+            }
+
+            // Dessiner le point
+            float point[] = { p.x, p.y };
+            GLuint tempVAO, tempVBO;
+            glGenVertexArrays(1, &tempVAO);
+            glGenBuffers(1, &tempVBO);
+
+            glBindVertexArray(tempVAO);
+            glBindBuffer(GL_ARRAY_BUFFER, tempVBO);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(point), point, GL_STATIC_DRAW);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+            glEnableVertexAttribArray(0);
+
+            glDrawArrays(GL_POINTS, 0, 1);
+
+            glDeleteVertexArrays(1, &tempVAO);
+            glDeleteBuffers(1, &tempVBO);
+        }
+
+        shader->End();
+    }
+
     // Afficher le polygone de découpage s'il existe
     if (!clipWindow.empty()) {
         shader->Begin();
 
-        // Dessiner les points de la fenêtre
-        shader->SetUniform("color", 1.0f, 1.0f, 0.0f);  // Jaune
+        // Dessiner chaque point individuellement avec mise en évidence
+        glPointSize(10.0f);
+        for (int i = 0; i < clipWindow.size(); i++) {
+            // Choisir la couleur en fonction de l'état du point
+            if (i == hoveredClipPointIndex) {
+                // Point survolé: jaune vif
+                shader->SetUniform("color", 1.0f, 1.0f, 0.0f);
+            } else if (i == selectedClipPointIndex) {
+                // Point sélectionné: jaune plus vif
+                shader->SetUniform("color", 1.0f, 1.0f, 0.4f);
+            } else {
+                // Point normal: jaune plus sombre
+                shader->SetUniform("color", 0.7f, 0.7f, 0.0f);
+            }
 
-        // Créer un VAO et VBO temporaires pour les points
-        GLuint pointsVAO, pointsVBO;
-        glGenVertexArrays(1, &pointsVAO);
-        glGenBuffers(1, &pointsVBO);
+            // Dessiner le point
+            float point[] = { clipWindow[i].x, clipWindow[i].y };
+            GLuint tempVAO, tempVBO;
+            glGenVertexArrays(1, &tempVAO);
+            glGenBuffers(1, &tempVBO);
 
-        glBindVertexArray(pointsVAO);
-        glBindBuffer(GL_ARRAY_BUFFER, pointsVBO);
-        glBufferData(GL_ARRAY_BUFFER, clipWindow.size() * sizeof(Point), clipWindow.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Point), (void*)0);
-        glEnableVertexAttribArray(0);
+            glBindVertexArray(tempVAO);
+            glBindBuffer(GL_ARRAY_BUFFER, tempVBO);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(point), point, GL_STATIC_DRAW);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+            glEnableVertexAttribArray(0);
 
-        glPointSize(7.0f);
-        glDrawArrays(GL_POINTS, 0, clipWindow.size());
+            glDrawArrays(GL_POINTS, 0, 1);
+
+            glDeleteVertexArrays(1, &tempVAO);
+            glDeleteBuffers(1, &tempVBO);
+        }
 
         // Dessiner les lignes de la fenêtre
         if (clipWindow.size() >= 2) {
@@ -251,14 +413,79 @@ void BezierApp::render() {
                 shader->SetUniform("color", 1.0f, 0.0f, 0.0f);  // Rouge si non convexe
             }
 
-            glDrawArrays(GL_LINE_LOOP, 0, clipWindow.size());
-        }
+            // Créer le VBO/VAO pour les lignes
+            GLuint linesVAO, linesVBO;
+            glGenVertexArrays(1, &linesVAO);
+            glGenBuffers(1, &linesVBO);
 
-        glDeleteVertexArrays(1, &pointsVAO);
-        glDeleteBuffers(1, &pointsVBO);
+            glBindVertexArray(linesVAO);
+            glBindBuffer(GL_ARRAY_BUFFER, linesVBO);
+            glBufferData(GL_ARRAY_BUFFER, clipWindow.size() * sizeof(Point), clipWindow.data(), GL_STATIC_DRAW);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Point), (void*)0);
+            glEnableVertexAttribArray(0);
+
+            glDrawArrays(GL_LINE_LOOP, 0, clipWindow.size());
+
+            glDeleteVertexArrays(1, &linesVAO);
+            glDeleteBuffers(1, &linesVBO);
+        }
 
         shader->End();
     }
+}
+
+void BezierApp::renderCursor() {
+    // Vérifier si ImGui a le focus
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) {
+        // Montrer le curseur normal sur ImGui
+        if (cursorMode != CursorMode::NORMAL) {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            cursorMode = CursorMode::NORMAL;
+        }
+        return;
+    } else {
+        // Cacher le curseur ailleurs
+        if (cursorMode != CursorMode::HIDDEN) {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+            cursorMode = CursorMode::HIDDEN;
+        }
+    }
+
+    // Si ImGui a le focus, ne pas dessiner notre curseur
+    if (cursorMode == CursorMode::NORMAL) return;
+
+    shader->Begin();
+
+    // Choisir la couleur en fonction de l'état
+    if (isPointHovered || hoveredClipPointIndex != -1) {
+        shader->SetUniform("color", 0.0f, 1.0f, 1.0f); // Cyan si un point est survolé
+    } else {
+        shader->SetUniform("color", 1.0f, 1.0f, 1.0f); // Blanc normalement
+    }
+
+    // Design de curseur simple en croix
+    float cursorSize = 0.02f;
+    float crossLines[] = {
+        // Ligne horizontale
+        mouseX - cursorSize, mouseY,
+        mouseX + cursorSize, mouseY,
+        // Ligne verticale
+        mouseX, mouseY - cursorSize,
+        mouseX, mouseY + cursorSize
+    };
+
+    glBindVertexArray(cursorVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, cursorVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(crossLines), crossLines, GL_DYNAMIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glLineWidth(2.0f);
+    glDrawArrays(GL_LINES, 0, 4);
+
+    glBindVertexArray(0);
+    shader->End();
 }
 
 void BezierApp::renderMenu() {
@@ -268,11 +495,13 @@ void BezierApp::renderMenu() {
     // Afficher aussi des statistiques sur la courbe courante
     // Positionnement initial uniquement (FirstUseEver)
     ImGui::SetNextWindowPos(ImVec2(width - 310, 10), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(300, 150), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(300, 170), ImGuiCond_FirstUseEver);
 
     // Aucun flag spécifique qui bloquerait le déplacement
     if (ImGui::Begin("Statistiques", nullptr)) {
         ImGui::Text("Nombre de courbes: %zu", curves.size());
+        ImGui::Text("Position souris: (%.2f, %.2f)", mouseX, mouseY);
+        ImGui::Text("Position écran: (%.0f, %.0f)", screenMouseX, screenMouseY);
 
         if (selectedCurveIterator != curves.end()) {
             ImGui::Text("Points de contrôle: %d", selectedCurveIterator->getControlPointCount());
@@ -288,6 +517,9 @@ void BezierApp::renderMenu() {
             ImGui::Text("Fenêtre convexe: %s",
                        CyrusBeck::isPolygonConvex(clipWindow) ? "Oui" : "Non");
         }
+
+        // Slider pour ajuster la sensibilité de sélection des points
+        ImGui::SliderFloat("Rayon de sélection", &selectionPadding, 0.01f, 0.1f, "%.2f");
     }
     ImGui::End();
 
@@ -320,31 +552,36 @@ void BezierApp::renderMenu() {
 }
 
 void BezierApp::mouseButtonCallback(int button, int action, int mods) {
+    // Ignorer les événements de souris si ImGui a le focus
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) return;
+
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-        double xpos, ypos;
-        glfwGetCursorPos(window, &xpos, &ypos);
-
-        // Convertir les coordonnées de la souris en coordonnées OpenGL
-        float x = (2.0f * xpos) / width - 1.0f;
-        float y = 1.0f - (2.0f * ypos) / height;
-
+        // Utiliser directement mouseX et mouseY qui sont constamment mis à jour
+        // via le callback de position du curseur
         switch (currentMode) {
         case Mode::ADD_CONTROL_POINTS:
             if (selectedCurveIterator != curves.end()) {
-                selectedCurveIterator->addControlPoint(x, y);
-                std::cout << "Point de contrôle ajouté: (" << x << ", " << y << ")" << std::endl;
+                selectedCurveIterator->addControlPoint(mouseX, mouseY);
+                std::cout << "Point de contrôle ajouté: (" << mouseX << ", " << mouseY << ")" << std::endl;
             }
             break;
 
         case Mode::EDIT_CONTROL_POINTS:
-            // Sélectionner le point de contrôle le plus proche
-                selectNearestControlPoint(x, y);
+            // Si un point est déjà survolé, le sélectionner directement
+            if (isPointHovered && hoveredPointIndex != -1) {
+                selectedPointIndex = hoveredPointIndex;
+                std::cout << "Point de contrôle sélectionné: " << selectedPointIndex << std::endl;
+            } else {
+                // Sélectionner le point de contrôle le plus proche avec padding
+                selectNearestControlPoint(mouseX, mouseY);
+            }
             break;
 
         case Mode::CREATE_CLIP_WINDOW:
             // Ajouter un point à la fenêtre de découpage
-                clipWindow.emplace_back(x, y);
-            std::cout << "Point de fenêtre ajouté: (" << x << ", " << y << ")" << std::endl;
+            clipWindow.emplace_back(mouseX, mouseY);
+            std::cout << "Point de fenêtre ajouté: (" << mouseX << ", " << mouseY << ")" << std::endl;
 
             // Vérifier si la fenêtre est convexe
             if (clipWindow.size() >= 3) {
@@ -357,8 +594,14 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
             break;
 
         case Mode::EDIT_CLIP_WINDOW:
-            // Sélectionner le point de la fenêtre le plus proche
-                selectNearestClipPoint(x, y);
+            // Si un point de découpage est survolé, le sélectionner directement
+            if (hoveredClipPointIndex != -1) {
+                selectedClipPointIndex = hoveredClipPointIndex;
+                std::cout << "Point de fenêtre sélectionné: " << selectedClipPointIndex << std::endl;
+            } else {
+                // Sélectionner le point de la fenêtre le plus proche avec padding
+                selectNearestClipPoint(mouseX, mouseY);
+            }
             break;
         }
     }
@@ -379,6 +622,7 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
     if (action == GLFW_PRESS) {
         switch (key)
         {
+        case GLFW_KEY_A:
         case GLFW_KEY_B:
             currentMode = Mode::ADD_CONTROL_POINTS;
             std::cout << "Mode: Ajout de points de contrôle" << std::endl;
@@ -434,46 +678,45 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
 
         case GLFW_KEY_T:
             // Appliquer une translation
-                if (selectedCurveIterator != curves.end()) {
-                    float dx = 0.1f; // À ajuster
-                    float dy = 0.1f; // À ajuster
-                    selectedCurveIterator->translate(dx, dy);
-                }
+            if (selectedCurveIterator != curves.end()) {
+                float dx = 0.1f; // À ajuster
+                float dy = 0.1f; // À ajuster
+                selectedCurveIterator->translate(dx, dy);
+            }
             break;
 
         case GLFW_KEY_S:
             // Appliquer un scaling
-                if (selectedCurveIterator != curves.end()) {
-                    float sx = 1.1f; // À ajuster
-                    float sy = 1.1f; // À ajuster
-                    selectedCurveIterator->scale(sx, sy);
-                }
+            if (selectedCurveIterator != curves.end()) {
+                float sx = 1.1f; // À ajuster
+                float sy = 1.1f; // À ajuster
+                selectedCurveIterator->scale(sx, sy);
+            }
             break;
 
         case GLFW_KEY_R:
             // Appliquer une rotation
-                if (selectedCurveIterator != curves.end()) {
-                    float angle = 15.0f; // Rotation de 15 degrés
-                    selectedCurveIterator->rotate(angle);
-                }
+            if (selectedCurveIterator != curves.end()) {
+                float angle = 15.0f; // Rotation de 15 degrés
+                selectedCurveIterator->rotate(angle);
+            }
             break;
 
         case GLFW_KEY_C:
             // Appliquer un cisaillement
-                if (selectedCurveIterator != curves.end()) {
-                    float shx = 0.1f; // À ajuster
-                    float shy = 0.0f; // À ajuster
-                    selectedCurveIterator->shear(shx, shy);
-                }
+            if (selectedCurveIterator != curves.end()) {
+                float shx = 0.1f; // À ajuster
+                float shy = 0.0f; // À ajuster
+                selectedCurveIterator->shear(shx, shy);
+            }
             break;
 
-        case GLFW_KEY_F:  // W pour Window (fenêtre)
+        case GLFW_KEY_F:  // Pour Window (fenêtre)
             currentMode = Mode::CREATE_CLIP_WINDOW;
             std::cout << "Mode changer en: Creation de fenetre de decoupage ACTIVE" << std::endl;
             break;
 
-
-        case GLFW_KEY_G:  // F pour Fenêtre
+        case GLFW_KEY_G:  // Pour Fenêtre
             currentMode = Mode::EDIT_CLIP_WINDOW;
             std::cout << "Mode: Edition de la fenetre de decoupage" << std::endl;
             break;
@@ -561,10 +804,22 @@ void BezierApp::nextCurve() {
 }
 
 void BezierApp::selectNearestControlPoint(float x, float y) {
-
     if (selectedCurveIterator == curves.end()) return;
 
-    selectedPointIndex = selectedCurveIterator->getNearestControlPoint(x, y);
+    // Utiliser le selectionPadding
+    float minDistance = selectionPadding * 2; // Distance initiale plus grande
+    selectedPointIndex = -1;
+
+    for (int i = 0; i < selectedCurveIterator->getControlPointCount(); i++) {
+        Point p = selectedCurveIterator->getControlPoint(i);
+        float distance = std::sqrt((p.x - x) * (p.x - x) + (p.y - y) * (p.y - y));
+
+        if (distance < minDistance) {
+            minDistance = distance;
+            selectedPointIndex = i;
+        }
+    }
+
     if (selectedPointIndex != -1) {
         std::cout << "Point de contrôle sélectionné: " << selectedPointIndex << std::endl;
     }
@@ -576,30 +831,28 @@ void BezierApp::selectNearestClipPoint(float x, float y) {
         return;
     }
 
-    Point p(x, y);
-    int nearestIndex = 0;
-    float minDistance = clipWindow[0].distanceTo(p);
+    // Utiliser le selectionPadding
+    float minDistance = selectionPadding * 2; // Distance initiale plus grande
+    selectedClipPointIndex = -1;
 
-    for (int i = 1; i < clipWindow.size(); ++i) {
-        float distance = clipWindow[i].distanceTo(p);
+    for (int i = 0; i < clipWindow.size(); i++) {
+        Point p = clipWindow[i];
+        float distance = std::sqrt((p.x - x) * (p.x - x) + (p.y - y) * (p.y - y));
+
         if (distance < minDistance) {
             minDistance = distance;
-            nearestIndex = i;
+            selectedClipPointIndex = i;
         }
     }
 
-    // Seuil de sélection (ajustable)
-    if (minDistance > 0.1f) {
-        selectedClipPointIndex = -1;  // Aucun point assez proche
-    } else {
-        selectedClipPointIndex = nearestIndex;
+    if (selectedClipPointIndex != -1) {
         std::cout << "Point de fenêtre sélectionné: " << selectedClipPointIndex << std::endl;
     }
 }
 
-// Ajouter cette méthode pour effacer la fenêtre de découpage
 void BezierApp::clearClipWindow() {
     clipWindow.clear();
     selectedClipPointIndex = -1;
+    hoveredClipPointIndex = -1;
     std::cout << "Fenêtre de découpage effacée" << std::endl;
 }
