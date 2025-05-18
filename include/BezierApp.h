@@ -11,10 +11,10 @@
 class BezierApp {
 public:
     enum class Mode {
-        ADD_CONTROL_POINTS,
-        EDIT_CONTROL_POINTS,
-        CREATE_CLIP_WINDOW,  // Clipping
-        EDIT_CLIP_WINDOW     // edit clipping
+        ADD_CONTROL_POINTS = 0,
+        EDIT_CONTROL_POINTS = 1,
+        CREATE_CLIP_WINDOW = 2,  // Clipping
+        EDIT_CLIP_WINDOW = 3     // edit clipping
     };
     BezierApp(const char* title, int width, int height);
     ~BezierApp();
@@ -42,6 +42,7 @@ private:
     void render();
     void renderMenu();
     void framebufferSizeCallback(int width, int height);
+    void setMode(Mode newMode);
 
     void mouseButtonCallback(int button, int action, int mods);
     void keyCallback(int key, int scancode, int action, int mods);
