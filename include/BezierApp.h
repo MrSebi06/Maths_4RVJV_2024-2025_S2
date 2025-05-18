@@ -5,16 +5,19 @@
 #include <GLFW/glfw3.h>
 #include <vector>
 #include <list>
-#include "../include/GLShader.h"  // Changé ici
+#include <map>
+#include <string>
+#include "../include/GLShader.h"
 #include "../include/BezierCurve.h"
+#include "../include/ImGuiManager.h"
 
 class BezierApp {
 public:
     enum class Mode {
         ADD_CONTROL_POINTS = 0,
         EDIT_CONTROL_POINTS = 1,
-        CREATE_CLIP_WINDOW = 2,  // Clipping
-        EDIT_CLIP_WINDOW = 3     // edit clipping
+        CREATE_CLIP_WINDOW = 2,
+        EDIT_CLIP_WINDOW = 3
     };
     BezierApp(const char* title, int width, int height);
     ~BezierApp();
@@ -38,6 +41,12 @@ private:
     int selectedClipPointIndex = -1;
     bool enableClipping = false;
 
+    // Gestionnaire ImGui
+    ImGuiManager imguiManager;
+
+    // Dictionnaire des commandes avec leur description
+    std::map<std::string, std::string> commandDescriptions;
+
     void processInput();
     void render();
     void renderMenu();
@@ -51,9 +60,14 @@ private:
     void deleteCurve();
     void nextCurve();
     void selectNearestControlPoint(float x, float y);
-    void selectNearestClipPoint(float x, float y);  // Déplacée ici
-    void clearClipWindow();  // Déplacée ici
+    void selectNearestClipPoint(float x, float y);
+    void clearClipWindow();
+
+    // Initialiser les descriptions des commandes
+    void initCommandDescriptions();
+
+    // Convertir le mode en chaîne de caractères
+    std::string getModeString() const;
 };
 
 #endif // BEZIER_APP_H
-

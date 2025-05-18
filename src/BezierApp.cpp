@@ -2,6 +2,7 @@
 #include <iostream>
 #include "../include/CyriusBeck.h"
 #include <algorithm>
+#include "imgui.h"
 
 BezierApp::BezierApp(const char* title, int width, int height)
     : width(width), height(height), currentMode(Mode::ADD_CONTROL_POINTS),
@@ -40,7 +41,6 @@ BezierApp::BezierApp(const char* title, int width, int height)
     glViewport(0, 0, width, height);
 
     // Création du shader
-
     shader = new GLShader();
     bool vsOk = shader->LoadVertexShader("../shader/basic.vs.glsl");
     bool fsOk = shader->LoadFragmentShader("../shader/basic.fs.glsl");
@@ -48,9 +48,9 @@ BezierApp::BezierApp(const char* title, int width, int height)
 
     if (!vsOk || !fsOk || !createOk) {
         std::cerr << "Erreur lors du chargement des shaders!" << std::endl;
-        // Ajoutez cette ligne pour terminer le programme proprement
         exit(EXIT_FAILURE);
     }
+
     // Configuration des callbacks
     glfwSetWindowUserPointer(window, this);
 
@@ -71,12 +71,54 @@ BezierApp::BezierApp(const char* title, int width, int height)
 
     // Création de la première courbe vide
     createNewCurve();
+
+    // Initialiser ImGui
+    imguiManager.init(window);
+
+    // Initialiser les descriptions des commandes
+    initCommandDescriptions();
 }
 
 BezierApp::~BezierApp() {
     delete shader;
     glfwDestroyWindow(window);
     glfwTerminate();
+}
+
+void BezierApp::initCommandDescriptions() {
+    commandDescriptions["A / B"] = "Mode ajout de points";
+    commandDescriptions["E"] = "Mode édition de points";
+    commandDescriptions["N"] = "Nouvelle courbe";
+    commandDescriptions["D"] = "Supprimer la courbe courante";
+    commandDescriptions["+/-"] = "Augmenter/diminuer le pas";
+    commandDescriptions["1"] = "Afficher/masquer courbe (méthode directe)";
+    commandDescriptions["2"] = "Afficher/masquer courbe (De Casteljau)";
+    commandDescriptions["3"] = "Afficher les deux courbes";
+    commandDescriptions["T"] = "Appliquer une translation";
+    commandDescriptions["S"] = "Appliquer un scaling";
+    commandDescriptions["R"] = "Appliquer une rotation";
+    commandDescriptions["C"] = "Appliquer un cisaillement";
+    commandDescriptions["Tab"] = "Passer à la courbe suivante";
+    commandDescriptions["F"] = "Mode création de fenêtre de découpage";
+    commandDescriptions["G"] = "Mode édition de fenêtre de découpage";
+    commandDescriptions["X"] = "Activer/désactiver le découpage";
+    commandDescriptions["Delete"] = "Supprimer le point sélectionné";
+    commandDescriptions["Backspace"] = "Effacer la fenêtre de découpage";
+}
+
+std::string BezierApp::getModeString() const {
+    switch (currentMode) {
+        case Mode::ADD_CONTROL_POINTS:
+            return "Ajout de points";
+        case Mode::EDIT_CONTROL_POINTS:
+            return "Édition de points";
+        case Mode::CREATE_CLIP_WINDOW:
+            return "Création de fenêtre de découpage";
+        case Mode::EDIT_CLIP_WINDOW:
+            return "Édition de fenêtre de découpage";
+        default:
+            return "Inconnu";
+    }
 }
 
 void BezierApp::run() {
@@ -93,11 +135,22 @@ void BezierApp::run() {
 
     while (!glfwWindowShouldClose(window)) {
         processInput();
+
+        // Commencer la frame ImGui
+        imguiManager.beginFrame();
+
         render();
+        renderMenu();
+
+        // Terminer la frame ImGui
+        imguiManager.endFrame();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
+
+    // Nettoyer ImGui
+    imguiManager.shutdown();
 }
 
 void BezierApp::framebufferSizeCallback(int newWidth, int newHeight) {
@@ -120,7 +173,6 @@ void BezierApp::setMode(Mode newMode) {
     // Autres actions à effectuer lors du changement de mode
     if (newMode == Mode::CREATE_CLIP_WINDOW) {
         std::cout << "Passé en mode création de fenêtre de découpage" << std::endl;
-        // Vous pouvez ajouter d'autres initialisations ici
     }
 }
 
@@ -169,8 +221,7 @@ void BezierApp::render() {
         }
     }
 
-    // Afficher le polygone de découpage s'il existe, quel que soit le mode actuel
-    // Cette modification permet de garder le polygone visible même en changeant de mode
+    // Afficher le polygone de découpage s'il existe
     if (!clipWindow.empty()) {
         shader->Begin();
 
@@ -208,40 +259,63 @@ void BezierApp::render() {
 
         shader->End();
     }
-    // Afficher le menu à l'écran
-    renderMenu();
 }
 
-
 void BezierApp::renderMenu() {
-    // Implémentation simple du menu - à améliorer avec une bibliothèque d'interface utilisateur
-    // Pour l'instant, nous affichons les commandes dans la console
-    if (menuNeedsUpdate) {
-        std::cout << "\n=== Menu des commandes ===" << std::endl;
-        std::cout << "A: Mode ajout de points" << std::endl;
-        std::cout << "E: Mode édition de points" << std::endl;
-        std::cout << "N: Nouvelle courbe" << std::endl;
-        std::cout << "D: Supprimer la courbe courante" << std::endl;
-        std::cout << "+/-: Augmenter/diminuer le pas" << std::endl;
-        std::cout << "1: Afficher/masquer courbe (méthode directe)" << std::endl;
-        std::cout << "2: Afficher/masquer courbe (De Casteljau)" << std::endl;
-        std::cout << "3: Afficher les deux courbes" << std::endl;
-        std::cout << "T: Appliquer une translation" << std::endl;
-        std::cout << "S: Appliquer un scaling" << std::endl;
-        std::cout << "R: Appliquer une rotation" << std::endl;
-        std::cout << "C: Appliquer un cisaillement" << std::endl;
-        std::cout << "Tab: Passer à la courbe suivante" << std::endl;
+    // Utiliser ImGui pour afficher les commandes
+    imguiManager.renderCommandsUI(commandDescriptions, getModeString());
 
-        // Ajouter les nouvelles commandes de fenêtrage
-        std::cout << "F: Mode creation de fenetre de decoupage" << std::endl;
-        std::cout << "G: Mode edition de fenetre de decoupage" << std::endl;
-        std::cout << "X: Activer/desactiver le decoupage" << std::endl;
-        std::cout << "Delete: Supprimer un point selectionne" << std::endl;
-        std::cout << "Backspace: Effacer la fenetre de decoupage" << std::endl;
+    // Afficher aussi des statistiques sur la courbe courante
+    // Positionnement initial uniquement (FirstUseEver)
+    ImGui::SetNextWindowPos(ImVec2(width - 310, 10), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(300, 150), ImGuiCond_FirstUseEver);
 
-        std::cout << "=========================" << std::endl;
+    // Aucun flag spécifique qui bloquerait le déplacement
+    if (ImGui::Begin("Statistiques", nullptr)) {
+        ImGui::Text("Nombre de courbes: %zu", curves.size());
 
-        menuNeedsUpdate = false;
+        if (selectedCurveIterator != curves.end()) {
+            ImGui::Text("Points de contrôle: %d", selectedCurveIterator->getControlPointCount());
+            ImGui::Text("Pas: %.4f", selectedCurveIterator->getStep());
+            ImGui::Text("Méthode directe: %s", selectedCurveIterator->isShowingDirectMethod() ? "Oui" : "Non");
+            ImGui::Text("De Casteljau: %s", selectedCurveIterator->isShowingDeCasteljau() ? "Oui" : "Non");
+        }
+
+        ImGui::Text("Découpage: %s", enableClipping ? "Activé" : "Désactivé");
+        ImGui::Text("Points fenêtre: %zu", clipWindow.size());
+
+        if (clipWindow.size() >= 3) {
+            ImGui::Text("Fenêtre convexe: %s",
+                       CyrusBeck::isPolygonConvex(clipWindow) ? "Oui" : "Non");
+        }
+    }
+    ImGui::End();
+
+    // Si c'est la première fois qu'on lance l'application, afficher une aide
+    static bool showHelpOnStart = true;
+    if (showHelpOnStart) {
+        // Position initiale centrée
+        ImGui::SetNextWindowPos(ImVec2(width / 2 - 200, height / 2 - 100), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(400, 200), ImGuiCond_FirstUseEver);
+
+        // Retirer les flags ImGuiWindowFlags_NoResize et ImGuiWindowFlags_NoMove pour permettre le déplacement
+        if (ImGui::Begin("Bienvenue", &showHelpOnStart)) {
+            ImGui::TextWrapped("Bienvenue dans l'éditeur de courbes de Bézier!");
+            ImGui::TextWrapped("Utilisez la souris pour ajouter des points de contrôle.");
+            ImGui::TextWrapped("Consultez le panneau 'Commandes disponibles' pour voir toutes les fonctionnalités.");
+            ImGui::TextWrapped("Vous pouvez déplacer toutes les fenêtres en cliquant et glissant leur barre de titre.");
+
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Commandes de base:");
+            ImGui::BulletText("A/B: Ajouter des points");
+            ImGui::BulletText("E: Éditer des points");
+            ImGui::BulletText("1/2/3: Méthodes d'affichage");
+
+            if (ImGui::Button("Fermer cette aide")) {
+                showHelpOnStart = false;
+            }
+        }
+        ImGui::End();
     }
 }
 
