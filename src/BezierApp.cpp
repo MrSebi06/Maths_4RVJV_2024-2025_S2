@@ -113,6 +113,17 @@ void BezierApp::framebufferSizeCallback(int newWidth, int newHeight) {
     std::cout << "Fenêtre redimensionnée: " << width << "x" << height << std::endl;
 }
 
+void BezierApp::setMode(Mode newMode) {
+    currentMode = newMode;
+    std::cout << "Mode changé en: " << static_cast<int>(currentMode) << std::endl;
+
+    // Autres actions à effectuer lors du changement de mode
+    if (newMode == Mode::CREATE_CLIP_WINDOW) {
+        std::cout << "Passé en mode création de fenêtre de découpage" << std::endl;
+        // Vous pouvez ajouter d'autres initialisations ici
+    }
+}
+
 void BezierApp::processInput() {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
@@ -224,11 +235,11 @@ void BezierApp::renderMenu() {
         std::cout << "Tab: Passer à la courbe suivante" << std::endl;
 
         // Ajouter les nouvelles commandes de fenêtrage
-        std::cout << "W: Mode création de fenêtre de découpage" << std::endl;
-        std::cout << "F: Mode édition de fenêtre de découpage" << std::endl;
-        std::cout << "X: Activer/désactiver le découpage" << std::endl;
-        std::cout << "Delete: Supprimer un point sélectionné" << std::endl;
-        std::cout << "Backspace: Effacer la fenêtre de découpage" << std::endl;
+        std::cout << "F: Mode creation de fenetre de decoupage" << std::endl;
+        std::cout << "G: Mode edition de fenetre de decoupage" << std::endl;
+        std::cout << "X: Activer/desactiver le decoupage" << std::endl;
+        std::cout << "Delete: Supprimer un point selectionne" << std::endl;
+        std::cout << "Backspace: Effacer la fenetre de decoupage" << std::endl;
 
         std::cout << "=========================" << std::endl;
 
@@ -260,7 +271,7 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
 
         case Mode::CREATE_CLIP_WINDOW:
             // Ajouter un point à la fenêtre de découpage
-                clipWindow.push_back(Point(x, y));
+                clipWindow.emplace_back(x, y);
             std::cout << "Point de fenêtre ajouté: (" << x << ", " << y << ")" << std::endl;
 
             // Vérifier si la fenêtre est convexe
@@ -290,6 +301,9 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
 }
 
 void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
+    if (action == GLFW_PRESS) {
+        std::cout << "Touche pressée: " << key << " (code ASCII)" << std::endl;
+    }
     if (action == GLFW_PRESS) {
         switch (key)
         {
@@ -381,14 +395,15 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
                 }
             break;
 
-        case GLFW_KEY_W:  // W pour Window (fenêtre)
+        case GLFW_KEY_F:  // W pour Window (fenêtre)
             currentMode = Mode::CREATE_CLIP_WINDOW;
-            std::cout << "Mode: Création de la fenêtre de découpage" << std::endl;
+            std::cout << "Mode changer en: Creation de fenetre de decoupage ACTIVE" << std::endl;
             break;
 
-        case GLFW_KEY_F:  // F pour Fenêtre
+
+        case GLFW_KEY_G:  // F pour Fenêtre
             currentMode = Mode::EDIT_CLIP_WINDOW;
-            std::cout << "Mode: Édition de la fenêtre de découpage" << std::endl;
+            std::cout << "Mode: Edition de la fenetre de decoupage" << std::endl;
             break;
 
         case GLFW_KEY_X:  // X pour activer/désactiver le découpage
