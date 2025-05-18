@@ -150,7 +150,7 @@ void BezierApp::processInput() {
         // Vérifier si la fenêtre est toujours convexe
         if (clipWindow.size() >= 3) {
             if (!CyrusBeck::isPolygonConvex(clipWindow)) {
-                std::cout << "Attention: La fenêtre n'est pas convexe!" << std::endl;
+                std::cout << "Attention: La fenetre n'est pas convexe!" << std::endl;
             }
         }
     }
@@ -169,10 +169,9 @@ void BezierApp::render() {
         }
     }
 
-    // Si on est en mode création ou édition de la fenêtre, dessiner la fenêtre
-    if ((currentMode == Mode::CREATE_CLIP_WINDOW || currentMode == Mode::EDIT_CLIP_WINDOW)
-        || (enableClipping && !clipWindow.empty())) {
-
+    // Afficher le polygone de découpage s'il existe, quel que soit le mode actuel
+    // Cette modification permet de garder le polygone visible même en changeant de mode
+    if (!clipWindow.empty()) {
         shader->Begin();
 
         // Dessiner les points de la fenêtre
@@ -194,6 +193,7 @@ void BezierApp::render() {
 
         // Dessiner les lignes de la fenêtre
         if (clipWindow.size() >= 2) {
+            // Changer la couleur en fonction de la convexité
             if (CyrusBeck::isPolygonConvex(clipWindow)) {
                 shader->SetUniform("color", 0.7f, 0.7f, 0.0f);  // Jaune foncé si convexe
             } else {
@@ -203,13 +203,11 @@ void BezierApp::render() {
             glDrawArrays(GL_LINE_LOOP, 0, clipWindow.size());
         }
 
-        // Nettoyer
         glDeleteVertexArrays(1, &pointsVAO);
         glDeleteBuffers(1, &pointsVBO);
 
         shader->End();
     }
-
     // Afficher le menu à l'écran
     renderMenu();
 }
@@ -307,7 +305,7 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
     if (action == GLFW_PRESS) {
         switch (key)
         {
-        case GLFW_KEY_A:
+        case GLFW_KEY_B:
             currentMode = Mode::ADD_CONTROL_POINTS;
             std::cout << "Mode: Ajout de points de contrôle" << std::endl;
             break;
