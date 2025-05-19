@@ -160,12 +160,39 @@ void BezierApp::render() {
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
+    // Afficher l'algorithme actuel à l'écran
+    std::string algoText = "Algorithme : ";
+    algoText += (clippingAlgorithm == ClippingAlgorithm::CYRUS_BECK) ?
+                "Cyrus-Beck" : "Sutherland-Hodgman";
+
     // Dessiner toutes les courbes avec ou sans découpage
     for (auto& curve : curves) {
-        if (enableClipping && clipWindow.size() >= 3 && CyrusBeck::isPolygonConvex(clipWindow)) {
-            curve.draw(*shader, &clipWindow);
+        if (enableClipping && clipWindow.size() >= 3) {
+            switch (clippingAlgorithm) {
+            case ClippingAlgorithm::CYRUS_BECK:
+                // Utiliser Cyrus-Beck pour découper des segments
+                    if (CyrusBeck::isPolygonConvex(clipWindow)) {
+                        curve.draw(*shader, &clipWindow);
+                    } else {
+                        curve.draw(*shader);  // Fenêtre non convexe, dessiner sans découpage
+                        std::cout << "Attention : Cyrus-Beck nécessite une fenêtre convexe" << std::endl;
+                    }
+                break;
+
+            case ClippingAlgorithm::SUTHERLAND_HODGMAN:
+                // Utiliser Sutherland-Hodgman pour découper des polygones
+                    if (curve.isClosedCurve()) {
+                        std::vector<Point> clippedPolygon = curve.clipClosedCurveWithSH(clipWindow);
+                        curve.draw(*shader);  // Dessiner la courbe originale
+                        curve.drawClippedWithSH(*shader, clippedPolygon);  // Dessiner le résultat découpé
+                    } else {
+                        curve.draw(*shader);  // Courbe non fermée, dessiner sans découpage
+                        std::cout << "Attention : Sutherland-Hodgman nécessite une courbe fermée" << std::endl;
+                    }
+                break;
+            }
         } else {
-            curve.draw(*shader);
+            curve.draw(*shader);  // Pas de découpage
         }
     }
 
@@ -173,6 +200,13 @@ void BezierApp::render() {
     // Cette modification permet de garder le polygone visible même en changeant de mode
     if (!clipWindow.empty()) {
         shader->Begin();
+
+        // Couleur différente selon l'algorithme
+        if (clippingAlgorithm == ClippingAlgorithm::CYRUS_BECK) {
+            shader->SetUniform("color", 1.0f, 1.0f, 0.0f);  // Jaune pour Cyrus-Beck
+        } else {
+            shader->SetUniform("color", 0.0f, 1.0f, 1.0f);  // Cyan pour Sutherland-Hodgman
+        }
 
         // Dessiner les points de la fenêtre
         shader->SetUniform("color", 1.0f, 1.0f, 0.0f);  // Jaune
@@ -235,7 +269,11 @@ void BezierApp::renderMenu() {
         // Ajouter les nouvelles commandes de fenêtrage
         std::cout << "F: Mode creation de fenetre de decoupage" << std::endl;
         std::cout << "G: Mode edition de fenetre de decoupage" << std::endl;
-        std::cout << "X: Activer/desactiver le decoupage" << std::endl;
+        std::cout << "X: Activer/désactiver le découpage" << std::endl;
+        std::cout << "H: Basculer entre algorithmes de découpage" << std::endl;
+        std::cout << "   Algorithme actuel: " <<
+            (clippingAlgorithm == ClippingAlgorithm::CYRUS_BECK ?
+             "Cyrus-Beck (segments)" : "Sutherland-Hodgman (polygones)") << std::endl;
         std::cout << "Delete: Supprimer un point selectionne" << std::endl;
         std::cout << "Backspace: Effacer la fenetre de decoupage" << std::endl;
 
@@ -404,9 +442,12 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
             std::cout << "Mode: Edition de la fenetre de decoupage" << std::endl;
             break;
 
-        case GLFW_KEY_X:  // X pour activer/désactiver le découpage
+        case GLFW_KEY_X:
             enableClipping = !enableClipping;
             std::cout << "Découpage: " << (enableClipping ? "Activé" : "Désactivé") << std::endl;
+            if (enableClipping) {
+                validateClippingAlgorithm();  // Vérifier les conditions si on active le découpage
+            }
             break;
 
         case GLFW_KEY_DELETE:
@@ -425,6 +466,16 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
 
         case GLFW_KEY_BACKSPACE:
             clearClipWindow();
+            break;
+
+        case GLFW_KEY_H:
+            // Basculer l'algorithme
+                if (clippingAlgorithm == ClippingAlgorithm::CYRUS_BECK) {
+                    clippingAlgorithm = ClippingAlgorithm::SUTHERLAND_HODGMAN;
+                } else {
+                    clippingAlgorithm = ClippingAlgorithm::CYRUS_BECK;
+                }
+            validateClippingAlgorithm();  // Vérifier les conditions
             break;
         }
         menuNeedsUpdate = true;
@@ -520,6 +571,31 @@ void BezierApp::selectNearestClipPoint(float x, float y) {
     } else {
         selectedClipPointIndex = nearestIndex;
         std::cout << "Point de fenêtre sélectionné: " << selectedClipPointIndex << std::endl;
+    }
+}
+
+void BezierApp::validateClippingAlgorithm() {
+    if (enableClipping) {
+        // Vérifier la convexité pour Cyrus-Beck
+        if (clippingAlgorithm == ClippingAlgorithm::CYRUS_BECK && !CyrusBeck::isPolygonConvex(clipWindow)) {
+            std::cout << "Attention : Cyrus-Beck nécessite une fenêtre convexe!" << std::endl;
+        }
+
+        // Vérifier que les courbes sont fermées pour Sutherland-Hodgman
+        if (clippingAlgorithm == ClippingAlgorithm::SUTHERLAND_HODGMAN) {
+            bool hasClosedCurve = false;
+            for (auto& curve : curves) {
+                if (curve.isClosedCurve()) {
+                    hasClosedCurve = true;
+                    break;
+                }
+            }
+
+            if (!hasClosedCurve) {
+                std::cout << "Attention : Sutherland-Hodgman necessite des courbes fermees!" << std::endl;
+                std::cout << "Fermez une courbe en faisant coincider le premier et le dernier point" << std::endl;
+            }
+        }
     }
 }
 

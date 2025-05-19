@@ -19,6 +19,8 @@ add_executable(${PROJECT_NAME}
         src/Shader.cpp
         include/CyriusBeck.h
         src/CyriusBeck.cpp
+        include/SutherlandHodgman.h
+        src/SutherlandHodgman.cpp
 )
 #add_executable(${PROJECT_NAME} main.cpp src/GLShader.cpp)
 target_include_directories(${PROJECT_NAME} PRIVATE

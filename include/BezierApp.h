@@ -16,6 +16,11 @@ public:
         CREATE_CLIP_WINDOW = 2,  // Clipping
         EDIT_CLIP_WINDOW = 3     // edit clipping
     };
+
+    enum class ClippingAlgorithm {
+        CYRUS_BECK,
+        SUTHERLAND_HODGMAN
+    };
     BezierApp(const char* title, int width, int height);
     ~BezierApp();
 
@@ -38,6 +43,8 @@ private:
     int selectedClipPointIndex = -1;
     bool enableClipping = false;
 
+    ClippingAlgorithm clippingAlgorithm = ClippingAlgorithm::CYRUS_BECK;  // Algorithme par défaut
+
     void processInput();
     void render();
     void renderMenu();
@@ -52,6 +59,7 @@ private:
     void nextCurve();
     void selectNearestControlPoint(float x, float y);
     void selectNearestClipPoint(float x, float y);  // Déplacée ici
+    void validateClippingAlgorithm();
     void clearClipWindow();  // Déplacée ici
 };
 

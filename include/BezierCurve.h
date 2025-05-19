@@ -6,6 +6,7 @@
 #include "../include/GLShader.h"
 #include "../include/Point.h"
 #include "../include/CyriusBeck.h"
+#include "../include/SutherlandHodgman.h"
 
 class BezierCurve {
 public:
@@ -58,6 +59,16 @@ public:
     void joinC0(BezierCurve& other);
     void joinC1(BezierCurve& other);
     void joinC2(BezierCurve& other);
+
+    // Méthode pour découper une courbe de Bézier fermée (considérée comme un polygone)
+    std::vector<Point> clipClosedCurveWithSH(const std::vector<Point>& clipWindow) const;
+
+    // Méthode pour dessiner une courbe découpée avec Sutherland-Hodgman
+    void drawClippedWithSH(GLShader& shader, const std::vector<Point>& clippedPolygon);
+
+    // Méthode pour vérifier si une courbe est fermée
+    bool isClosedCurve() const;
+
 
 private:
     // Points de contrôle et points de la courbe

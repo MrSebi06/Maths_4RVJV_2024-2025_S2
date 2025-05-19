@@ -643,3 +643,70 @@ void BezierCurve::joinC2(BezierCurve& other) {
     other.recalculateCurves();
     other.updateBuffers();
 }
+
+std::vector<Point> BezierCurve::clipClosedCurveWithSH(const std::vector<Point>& clipWindow) const {
+    // Vérifier si la courbe est fermée
+    if (!isClosedCurve()) {
+        std::cout << "La courbe n'est pas fermée, impossible d'appliquer Sutherland-Hodgman" << std::endl;
+        return std::vector<Point>();
+    }
+
+    // Utiliser les points de la courbe calculée (directe ou De Casteljau)
+    const std::vector<Point>& curvePoints = directMethodPoints.empty() ?
+                                          deCasteljauPoints : directMethodPoints;
+
+    if (curvePoints.empty()) {
+        return std::vector<Point>();
+    }
+
+    // Appliquer l'algorithme de Sutherland-Hodgman
+    return SutherlandHodgman::clipPolygon(curvePoints, clipWindow);
+}
+
+void BezierCurve::drawClippedWithSH(GLShader& shader, const std::vector<Point>& clippedPolygon) {
+    if (clippedPolygon.empty()) {
+        return;
+    }
+
+    shader.Begin();
+
+    // Créer un VAO et VBO temporaires pour le polygone découpé
+    GLuint clippedVAO, clippedVBO;
+    glGenVertexArrays(1, &clippedVAO);
+    glGenBuffers(1, &clippedVBO);
+
+    glBindVertexArray(clippedVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, clippedVBO);
+    glBufferData(GL_ARRAY_BUFFER, clippedPolygon.size() * sizeof(Point), clippedPolygon.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Point), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // Dessiner le contour du polygone découpé
+    shader.SetUniform("color", 0.0f, 0.8f, 0.8f);  // Cyan
+    glDrawArrays(GL_LINE_LOOP, 0, clippedPolygon.size());
+
+    // Dessiner un remplissage semi-transparent
+    shader.SetUniform("color", 0.0f, 0.5f, 0.5f);  // Cyan foncé
+    // Vous aurez besoin d'une fonction de triangulation pour remplir le polygone
+    // Pour simplifier, on peut dessiner un éventail de triangles si le polygone est convexe
+    glDrawArrays(GL_TRIANGLE_FAN, 0, clippedPolygon.size());
+
+    glDeleteVertexArrays(1, &clippedVAO);
+    glDeleteBuffers(1, &clippedVBO);
+
+    shader.End();
+}
+
+bool BezierCurve::isClosedCurve() const {
+    // Vérifier si le premier et le dernier point de contrôle sont identiques
+    if (controlPoints.size() < 3) {
+        return false;
+    }
+
+    const Point& first = controlPoints.front();
+    const Point& last = controlPoints.back();
+
+    // Tolérance pour l'égalité flottante
+    float distance = first.distanceTo(last);
+    return distance < 0.001f;
+}
