@@ -89,6 +89,9 @@ private:
     bool checkClipPointHover(float x, float y); // Vérifie si un point de découpage est survolé
     void clearClipWindow();
 
+    void saveCurvesToFile();
+    void loadCurvesFromFile();
+
     // Initialiser les descriptions des commandes
     void initCommandDescriptions();
 

@@ -3,6 +3,9 @@
 #include <cmath>
 #include "../include/CyriusBeck.h"
 #include <algorithm>
+#include <fstream>
+#include <sstream>
+
 #include "imgui.h"
 
 // Définition de M_PI si nécessaire
@@ -195,6 +198,7 @@ void BezierApp::initCommandDescriptions() {
     commandDescriptions["E"] = "Mode édition de points";
     commandDescriptions["N"] = "Nouvelle courbe";
     commandDescriptions["D"] = "Supprimer la courbe courante";
+    commandDescriptions["P/O"] = "Sauvegarder/Charger";
     commandDescriptions["+/-"] = "Augmenter/diminuer le pas";
     commandDescriptions["1"] = "Afficher/masquer courbe (méthode directe)";
     commandDescriptions["2"] = "Afficher/masquer courbe (De Casteljau)";
@@ -743,6 +747,14 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
         case GLFW_KEY_BACKSPACE:
             clearClipWindow();
             break;
+
+        case GLFW_KEY_P:
+            saveCurvesToFile();
+            break;
+
+        case GLFW_KEY_O:
+            loadCurvesFromFile();
+            break;
         }
         menuNeedsUpdate = true;
     }
@@ -855,4 +867,77 @@ void BezierApp::clearClipWindow() {
     selectedClipPointIndex = -1;
     hoveredClipPointIndex = -1;
     std::cout << "Fenêtre de découpage effacée" << std::endl;
+}
+
+void BezierApp::saveCurvesToFile() {
+    std::vector<std::vector<std::tuple<float, float>>> allCurvesData;
+    for (const auto& curve : curves) {
+        std::vector<std::tuple<float, float>> curveData;
+        for (int i = 0; i < curve.getControlPointCount(); i++) {
+            Point p = curve.getControlPoint(i);
+            curveData.emplace_back(p.x, p.y);
+        }
+        allCurvesData.push_back(curveData);
+    }
+    std::ofstream
+    file("curves.crv");
+    if (file.is_open()) {
+        for (const auto& curveData : allCurvesData) {
+            for (const auto& point : curveData) {
+                file << std::get<0>(point) << " " << std::get<1>(point) << "\n";
+            }
+            file << ";\n"; // Séparateur entre les courbes
+        }
+        file.close();
+        std::cout << "Courbes sauvegardées dans le fichier: " << "curves.crv" << std::endl;
+    } else {
+        std::cerr << "Erreur lors de l'ouverture du fichier pour sauvegarde" << std::endl;
+    }
+}
+void BezierApp::loadCurvesFromFile() {
+    std::ifstream file("curves.crv");
+    if (file.is_open()) {
+        std::string line;
+        std::vector<std::tuple<float, float>> curveData;
+        curves.clear();
+
+        while (std::getline(file, line)) {
+            if (line == ";") {
+                // Create a new curve and add points to it
+                curves.emplace_back();  // Add a new curve to the container
+                auto curveIter = --curves.end();  // Get iterator to the newly added curve
+
+                for (const auto& point : curveData) {
+                    curveIter->addControlPoint(std::get<0>(point), std::get<1>(point));
+                }
+                curveData.clear();
+            } else {
+                std::istringstream iss(line);
+                float x, y;
+                if (iss >> x >> y) {
+                    curveData.emplace_back(x, y);
+                }
+            }
+        }
+
+        // Handle any remaining points (for the last curve if no ";" at the end)
+        if (!curveData.empty()) {
+            curves.emplace_back();  // Add a new curve
+            auto curveIter = --curves.end();
+
+            for (const auto& point : curveData) {
+                curveIter->addControlPoint(std::get<0>(point), std::get<1>(point));
+            }
+        }
+
+        // Set the selected curve to the first one if any were loaded
+        if (!curves.empty()) {
+            selectedCurveIterator = curves.begin();
+        }
+
+        file.close();
+        std::cout << "Courbes chargées depuis le fichier: " << "curves.crv" << std::endl;
+    } else {
+        std::cerr << "Erreur lors de l'ouverture du fichier pour chargement" << std::endl;
+    }
 }
