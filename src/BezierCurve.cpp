@@ -1,12 +1,22 @@
 ﻿#include "../include/BezierCurve.h"
+#include "../include/CyriusBeck.h"
+#include "../include/SutherlandHodgman.h"
 #include <iostream>
 #include <chrono>
 #include <cmath>
 #include <algorithm>
 #include <limits>
 
-BezierCurve::BezierCurve() : step(0.01f), showDirectMethod(false), showDeCasteljau(false) {
+BezierCurve::BezierCurve() : step(0.01f), showDirectMethod(false), showDeCasteljau(false),
+                            clippingAlgorithm(ClippingAlgorithm::CYRUS_BECK) {
     setupBuffers();
+}
+
+void BezierCurve::setClippingAlgorithm(ClippingAlgorithm algorithm) {
+    clippingAlgorithm = algorithm;
+}
+BezierCurve::ClippingAlgorithm BezierCurve::getClippingAlgorithm() const {
+    return clippingAlgorithm;
 }
 
 BezierCurve::~BezierCurve() {
@@ -265,6 +275,8 @@ void BezierCurve::calculateDeCasteljau() {
     showDeCasteljau = true;
     updateBuffers();
 }
+
+// Modifiez la méthode draw pour utiliser l'algorithme sélectionné
 void BezierCurve::draw(GLShader& shader, const std::vector<Point>* clipWindow) {
     shader.Begin();
 
@@ -281,61 +293,89 @@ void BezierCurve::draw(GLShader& shader, const std::vector<Point>* clipWindow) {
         glDrawArrays(GL_POINTS, 0, controlPoints.size());
     }
 
-    // Si une fenêtre de découpage est spécifiée et valide, appliquer l'algorithme de Cyrus-Beck
-    if (clipWindow && clipWindow->size() >= 3 && CyrusBeck::isPolygonConvex(*clipWindow)) {
+    // Si une fenêtre de découpage est spécifiée et valide
+    if (clipWindow && clipWindow->size() >= 3) {
         // Utiliser les points calculés par la méthode directe ou De Casteljau
         const std::vector<Point>& curvePoints = directMethodPoints.empty() ?
                                               deCasteljauPoints : directMethodPoints;
 
         if (!curvePoints.empty()) {
-            // Découper la courbe avec l'algorithme de Cyrus-Beck
-            std::vector<std::vector<Point>> clippedSegments =
-                CyrusBeck::clipCurveToWindow(curvePoints, *clipWindow);
+            if (clippingAlgorithm == ClippingAlgorithm::CYRUS_BECK) {
+                // Vérifier si le polygone est convexe (nécessaire pour Cyrus-Beck)
+                if (CyrusBeck::isPolygonConvex(*clipWindow)) {
+                    // Découper la courbe avec l'algorithme de Cyrus-Beck
+                    std::vector<std::vector<Point>> clippedSegments =
+                        CyrusBeck::clipCurveToWindow(curvePoints, *clipWindow);
 
-            // Dessiner chaque segment découpé
-            for (const auto& segment : clippedSegments) {
-                if (segment.size() >= 2) {
-                    // Créer un VAO et VBO temporaires pour chaque segment
-                    GLuint segmentVAO, segmentVBO;
-                    glGenVertexArrays(1, &segmentVAO);
-                    glGenBuffers(1, &segmentVBO);
+                    // Dessiner chaque segment découpé
+                    for (const auto& segment : clippedSegments) {
+                        if (segment.size() >= 2) {
+                            // Créer un VAO et VBO temporaires pour chaque segment
+                            GLuint segmentVAO, segmentVBO;
+                            glGenVertexArrays(1, &segmentVAO);
+                            glGenBuffers(1, &segmentVBO);
 
-                    glBindVertexArray(segmentVAO);
-                    glBindBuffer(GL_ARRAY_BUFFER, segmentVBO);
-                    glBufferData(GL_ARRAY_BUFFER, segment.size() * sizeof(Point), segment.data(), GL_STATIC_DRAW);
-                    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Point), (void*)0);
-                    glEnableVertexAttribArray(0);
+                            glBindVertexArray(segmentVAO);
+                            glBindBuffer(GL_ARRAY_BUFFER, segmentVBO);
+                            glBufferData(GL_ARRAY_BUFFER, segment.size() * sizeof(Point), segment.data(), GL_STATIC_DRAW);
+                            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Point), (void*)0);
+                            glEnableVertexAttribArray(0);
 
-                    // Dessiner le segment découpé
-                    shader.SetUniform("color", 0.0f, 1.0f, 1.0f); // Cyan
-                    glDrawArrays(GL_LINE_STRIP, 0, segment.size());
+                            // Dessiner le segment découpé
+                            shader.SetUniform("color", 0.0f, 1.0f, 1.0f); // Cyan
+                            glDrawArrays(GL_LINE_STRIP, 0, segment.size());
 
-                    // Nettoyer
-                    glDeleteVertexArrays(1, &segmentVAO);
-                    glDeleteBuffers(1, &segmentVBO);
+                            // Nettoyer
+                            glDeleteVertexArrays(1, &segmentVAO);
+                            glDeleteBuffers(1, &segmentVBO);
+                        }
+                    }
+                } else {
+                    std::cout << "Le polygone n'est pas convexe, impossible d'utiliser Cyrus-Beck" << std::endl;
+                    // Passer à la méthode normale
+                    goto draw_normal;
+                }
+            } else if (clippingAlgorithm == ClippingAlgorithm::SUTHERLAND_HODGMAN) {
+                // Pour Sutherland-Hodgman, vérifier si la courbe est fermée
+                if (isClosedCurve()) {
+                    std::vector<Point> clippedPolygon = clipClosedCurveWithSH(*clipWindow);
+                    std::cout << "Sutherland-Hodgman a genere un polygone avec " << clippedPolygon.size() << " points." << std::endl;
+
+                    if (!clippedPolygon.empty()) {
+                        drawClippedWithSH(shader, clippedPolygon);
+                        // Sortir de la fonction après avoir dessiné le polygone découpé
+                        glBindVertexArray(0);
+                        shader.End();
+                        return;
+                    }
+                } else {
+                    std::cout << "La courbe n'est pas fermée, impossible d'utiliser Sutherland-Hodgman comme un polygone" << std::endl;
+                    // Passer à la méthode normale
+                    goto draw_normal;
                 }
             }
         }
     }
-    // Sinon, dessiner la courbe normalement
-    else {
-        // Dessiner la courbe de Bézier (méthode directe)
-        if (showDirectMethod && directMethodPoints.size() >= 2) {
-            shader.SetUniform("color", 0.0f, 1.0f, 0.0f);
-            glBindVertexArray(directMethodVAO);
-            glDrawArrays(GL_LINE_STRIP, 0, directMethodPoints.size());
-        }
 
-        // Dessiner la courbe de Bézier (méthode de De Casteljau)
-        if (showDeCasteljau && deCasteljauPoints.size() >= 2) {
-            if (showDirectMethod) {
-                shader.SetUniform("color", 1.0f, 0.0f, 1.0f);
-            } else {
-                shader.SetUniform("color", 0.0f, 1.0f, 0.0f);
-            }
-            glBindVertexArray(deCasteljauVAO);
-            glDrawArrays(GL_LINE_STRIP, 0, deCasteljauPoints.size());
+draw_normal:  // AJOUT DE L'ÉTIQUETTE ICI
+    // Si nous arrivons ici, soit il n'y a pas de découpage, soit le découpage a échoué
+    // Nous dessinons donc la courbe normalement
+    // Dessiner la courbe de Bézier (méthode directe)
+    if (showDirectMethod && directMethodPoints.size() >= 2) {
+        shader.SetUniform("color", 0.0f, 1.0f, 0.0f);
+        glBindVertexArray(directMethodVAO);
+        glDrawArrays(GL_LINE_STRIP, 0, directMethodPoints.size());
+    }
+
+    // Dessiner la courbe de Bézier (méthode de De Casteljau)
+    if (showDeCasteljau && deCasteljauPoints.size() >= 2) {
+        if (showDirectMethod) {
+            shader.SetUniform("color", 1.0f, 0.0f, 1.0f);
+        } else {
+            shader.SetUniform("color", 0.0f, 1.0f, 0.0f);
         }
+        glBindVertexArray(deCasteljauVAO);
+        glDrawArrays(GL_LINE_STRIP, 0, deCasteljauPoints.size());
     }
 
     glBindVertexArray(0);

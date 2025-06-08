@@ -13,7 +13,6 @@ public:
 
     // Constructeur : lit et construit le shader
     Shader(const char* vertexPath, const char* fragmentPath);
-
     // Activer le shader
     void use();
 

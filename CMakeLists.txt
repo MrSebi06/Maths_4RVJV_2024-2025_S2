@@ -25,10 +25,11 @@ set(BEZIER_SOURCE_FILES
         src/BezierCurve.cpp
         src/Point.cpp
         src/Shader.cpp
-        src/CyriusBeck.cpp
         src/ImGuiManager.cpp
         include/ImGuiManager.h
         src/ImGuiManager.cpp
+        src/CyriusBeck.cpp
+        src/SutherlandHodgman.cpp
 )
 
 add_executable(${PROJECT_NAME} main.cpp ${BEZIER_HEADER_FILES} ${BEZIER_SOURCE_FILES})

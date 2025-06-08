@@ -1,7 +1,9 @@
 ﻿#include "../include/BezierApp.h"
+#include "../include/BezierCurve.h"
 #include <iostream>
 #include <cmath>
 #include "../include/CyriusBeck.h"
+#include "../include/SutherlandHodgman.h"
 #include <algorithm>
 #include "imgui.h"
 
@@ -16,7 +18,8 @@ BezierApp::BezierApp(const char* title, int width, int height)
       selectedClipPointIndex(-1), enableClipping(false),
       mouseX(0.0f), mouseY(0.0f), screenMouseX(0), screenMouseY(0),
       isPointHovered(false), hoveredPointIndex(-1),
-      hoveredClipPointIndex(-1), cursorMode(CursorMode::HIDDEN) {
+      hoveredClipPointIndex(-1), cursorMode(CursorMode::HIDDEN),
+      usesSutherlandHodgman(false){
 
     // Initialisation de GLFW
     if (!glfwInit()) {
@@ -98,6 +101,8 @@ BezierApp::BezierApp(const char* title, int width, int height)
 
     // Initialiser les descriptions des commandes
     initCommandDescriptions();
+
+    commandDescriptions["Z"] = "Basculer entre Cyrus-Beck et Sutherland-Hodgman";
 }
 
 BezierApp::~BezierApp() {
@@ -108,6 +113,21 @@ BezierApp::~BezierApp() {
     delete shader;
     glfwDestroyWindow(window);
     glfwTerminate();
+}
+
+// Implémentez la méthode pour basculer entre les algorithmes
+void BezierApp::toggleClippingAlgorithm() {
+    usesSutherlandHodgman = !usesSutherlandHodgman;
+
+    // Mettre à jour l'algorithme pour toutes les courbes
+    for (auto& curve : curves) {
+        curve.setClippingAlgorithm(usesSutherlandHodgman ?
+            BezierCurve::ClippingAlgorithm::SUTHERLAND_HODGMAN :
+            BezierCurve::ClippingAlgorithm::CYRUS_BECK);
+    }
+
+    std::cout << "Algorithme de découpage changé pour: " <<
+        (usesSutherlandHodgman ? "Sutherland-Hodgman" : "Cyrus-Beck") << std::endl;
 }
 
 void BezierApp::setupCursorBuffers() {
@@ -315,7 +335,7 @@ void BezierApp::render() {
 
     // Dessiner toutes les courbes avec ou sans découpage
     for (auto& curve : curves) {
-        if (enableClipping && clipWindow.size() >= 3 && CyrusBeck::isPolygonConvex(clipWindow)) {
+        if (enableClipping && clipWindow.size() >= 3 ) {
             curve.draw(*shader, &clipWindow);
         } else {
             curve.draw(*shader);
@@ -502,6 +522,9 @@ void BezierApp::renderMenu() {
         ImGui::Text("Nombre de courbes: %zu", curves.size());
         ImGui::Text("Position souris: (%.2f, %.2f)", mouseX, mouseY);
         ImGui::Text("Position écran: (%.0f, %.0f)", screenMouseX, screenMouseY);
+        ImGui::Text("Découpage: %s", enableClipping ? "Activé" : "Désactivé");
+        ImGui::Text("Algorithme: %s", usesSutherlandHodgman ? "Sutherland-Hodgman" : "Cyrus-Beck");
+        ImGui::Text("Points fenêtre: %zu", clipWindow.size());
 
         if (selectedCurveIterator != curves.end()) {
             ImGui::Text("Points de contrôle: %d", selectedCurveIterator->getControlPointCount());
@@ -532,16 +555,16 @@ void BezierApp::renderMenu() {
 
         // Retirer les flags ImGuiWindowFlags_NoResize et ImGuiWindowFlags_NoMove pour permettre le déplacement
         if (ImGui::Begin("Bienvenue", &showHelpOnStart)) {
-            ImGui::TextWrapped("Bienvenue dans l'éditeur de courbes de Bézier!");
-            ImGui::TextWrapped("Utilisez la souris pour ajouter des points de contrôle.");
-            ImGui::TextWrapped("Consultez le panneau 'Commandes disponibles' pour voir toutes les fonctionnalités.");
-            ImGui::TextWrapped("Vous pouvez déplacer toutes les fenêtres en cliquant et glissant leur barre de titre.");
+            ImGui::TextWrapped("Bienvenue dans l'editeur de courbes de Bézier!");
+            ImGui::TextWrapped("Utilisez la souris pour ajouter des points de controle.");
+            ImGui::TextWrapped("Consultez le panneau 'Commandes disponibles' pour voir toutes les fonctionnalites.");
+            ImGui::TextWrapped("Vous pouvez deplacer toutes les fenêtres en cliquant et glissant leur barre de titre.");
 
             ImGui::Separator();
             ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Commandes de base:");
             ImGui::BulletText("A/B: Ajouter des points");
-            ImGui::BulletText("E: Éditer des points");
-            ImGui::BulletText("1/2/3: Méthodes d'affichage");
+            ImGui::BulletText("E: Editer des points");
+            ImGui::BulletText("1/2/3: Methodes d'affichage");
 
             if (ImGui::Button("Fermer cette aide")) {
                 showHelpOnStart = false;
@@ -563,7 +586,7 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
         case Mode::ADD_CONTROL_POINTS:
             if (selectedCurveIterator != curves.end()) {
                 selectedCurveIterator->addControlPoint(mouseX, mouseY);
-                std::cout << "Point de contrôle ajouté: (" << mouseX << ", " << mouseY << ")" << std::endl;
+                std::cout << "Point de contrôle ajoute: (" << mouseX << ", " << mouseY << ")" << std::endl;
             }
             break;
 
@@ -571,7 +594,7 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
             // Si un point est déjà survolé, le sélectionner directement
             if (isPointHovered && hoveredPointIndex != -1) {
                 selectedPointIndex = hoveredPointIndex;
-                std::cout << "Point de contrôle sélectionné: " << selectedPointIndex << std::endl;
+                std::cout << "Point de contrôle selectionne: " << selectedPointIndex << std::endl;
             } else {
                 // Sélectionner le point de contrôle le plus proche avec padding
                 selectNearestControlPoint(mouseX, mouseY);
@@ -581,7 +604,7 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
         case Mode::CREATE_CLIP_WINDOW:
             // Ajouter un point à la fenêtre de découpage
             clipWindow.emplace_back(mouseX, mouseY);
-            std::cout << "Point de fenêtre ajouté: (" << mouseX << ", " << mouseY << ")" << std::endl;
+            std::cout << "Point de fenetre ajoute: (" << mouseX << ", " << mouseY << ")" << std::endl;
 
             // Vérifier si la fenêtre est convexe
             if (clipWindow.size() >= 3) {
@@ -597,7 +620,7 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
             // Si un point de découpage est survolé, le sélectionner directement
             if (hoveredClipPointIndex != -1) {
                 selectedClipPointIndex = hoveredClipPointIndex;
-                std::cout << "Point de fenêtre sélectionné: " << selectedClipPointIndex << std::endl;
+                std::cout << "Point de fenetre selectionne: " << selectedClipPointIndex << std::endl;
             } else {
                 // Sélectionner le point de la fenêtre le plus proche avec padding
                 selectNearestClipPoint(mouseX, mouseY);
@@ -617,7 +640,7 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
 
 void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
     if (action == GLFW_PRESS) {
-        std::cout << "Touche pressée: " << key << " (code ASCII)" << std::endl;
+        std::cout << "Touche pressee: " << key << " (code ASCII)" << std::endl;
     }
     if (action == GLFW_PRESS) {
         switch (key)
@@ -630,12 +653,12 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
 
         case GLFW_KEY_E:
             currentMode = Mode::EDIT_CONTROL_POINTS;
-            std::cout << "Mode: Édition de points de contrôle" << std::endl;
+            std::cout << "Mode: Edition de points de controle" << std::endl;
             break;
 
         case GLFW_KEY_N:
             createNewCurve();
-            std::cout << "Nouvelle courbe créée" << std::endl;
+            std::cout << "Nouvelle courbe creee" << std::endl;
             break;
 
         case GLFW_KEY_D:
@@ -723,7 +746,11 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
 
         case GLFW_KEY_X:  // X pour activer/désactiver le découpage
             enableClipping = !enableClipping;
-            std::cout << "Découpage: " << (enableClipping ? "Activé" : "Désactivé") << std::endl;
+            std::cout << "Decoupage: " << (enableClipping ? "Active" : "Desactive") << std::endl;
+            break;
+
+        case GLFW_KEY_Z:  // Z pour basculer l'algorithme Cyrius Beck ou Sutherland
+            toggleClippingAlgorithm();
             break;
 
         case GLFW_KEY_DELETE:
@@ -731,12 +758,12 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
                 // Supprimer un point de la fenêtre
                 clipWindow.erase(clipWindow.begin() + selectedClipPointIndex);
                 selectedClipPointIndex = -1;
-                std::cout << "Point de fenêtre supprimé" << std::endl;
+                std::cout << "Point de fenetre supprime" << std::endl;
             } else if (currentMode == Mode::EDIT_CONTROL_POINTS && selectedPointIndex != -1 && selectedCurveIterator != curves.end()) {
                 // Supprimer un point de contrôle
                 selectedCurveIterator->removeControlPoint(selectedPointIndex);
                 selectedPointIndex = -1;
-                std::cout << "Point de contrôle supprimé" << std::endl;
+                std::cout << "Point de controle supprime" << std::endl;
             }
             break;
 
@@ -752,13 +779,18 @@ void BezierApp::createNewCurve() {
     // Ajouter une nouvelle courbe vide à la liste
     curves.emplace_back();
 
+    // Définir l'algorithme de découpage
+    curves.back().setClippingAlgorithm(usesSutherlandHodgman ?
+        BezierCurve::ClippingAlgorithm::SUTHERLAND_HODGMAN :
+        BezierCurve::ClippingAlgorithm::CYRUS_BECK);
+
     // Sélectionner la nouvelle courbe (la dernière de la liste)
     selectedCurveIterator = std::prev(curves.end());
 
     // Réinitialiser les indices de points sélectionnés
     selectedPointIndex = -1;
 
-    std::cout << "Nouvelle courbe créée. Total: " << curves.size() << std::endl;
+    std::cout << "Nouvelle courbe creee. Total: " << curves.size() << std::endl;
 }
 
 void BezierApp::deleteCurve() {
@@ -777,10 +809,10 @@ void BezierApp::deleteCurve() {
 
         if (curves.empty()) {
             selectedCurveIterator = curves.end();
-            std::cout << "Toutes les courbes ont été supprimées" << std::endl;
+            std::cout << "Toutes les courbes ont ete supprimees" << std::endl;
         } else {
             selectedCurveIterator = nextIterator;
-            std::cout << "Courbe supprimée. Courbe suivante sélectionnée." << std::endl;
+            std::cout << "Courbe suppriee. Courbe suivante selectionnee." << std::endl;
         }
     }
 }

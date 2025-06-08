@@ -4,7 +4,7 @@
 int main() {
     try {
         // Créer l'application avec une fenêtre de 800x600
-        BezierApp app("Courbes de Bézier - Interface Graphique", 800, 600);
+        BezierApp app("Courbes de Bézier - Interface Graphique", 1000, 800);
 
         // Afficher les instructions dans la console (en plus de l'interface graphique)
         std::cout << "=== Programme de manipulation de courbes de Bézier ===" << std::endl;

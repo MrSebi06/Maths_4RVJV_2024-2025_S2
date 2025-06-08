@@ -5,13 +5,18 @@
 #include <GL/glew.h>
 #include "../include/GLShader.h"
 #include "../include/Point.h"
-#include "../include/CyriusBeck.h"
-#include "../include/SutherlandHodgman.h"
+
+
 
 class BezierCurve {
 public:
     BezierCurve();
     ~BezierCurve();
+
+    enum class ClippingAlgorithm {
+        CYRUS_BECK,
+        SUTHERLAND_HODGMAN
+    };
 
     // Méthodes de gestion des points de contrôle
     void addControlPoint(float x, float y);
@@ -69,13 +74,16 @@ public:
     // Méthode pour vérifier si une courbe est fermée
     bool isClosedCurve() const;
 
+    void setClippingAlgorithm(ClippingAlgorithm algorithm);
+    ClippingAlgorithm getClippingAlgorithm() const;
+
 
 private:
     // Points de contrôle et points de la courbe
     std::vector<Point> controlPoints;
     std::vector<Point> directMethodPoints;
     std::vector<Point> deCasteljauPoints;
-
+    ClippingAlgorithm clippingAlgorithm;
     // Triangle de Pascal pour les calculs de combinaisons
     std::vector<std::vector<int>> pascalTriangle;
 

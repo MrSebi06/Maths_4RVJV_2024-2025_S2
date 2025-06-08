@@ -1,109 +1,90 @@
-﻿#include "../include/SutherlandHodgman.h"
+﻿
+#include "../include/SutherlandHodgman.h"
 
-std::vector<Point> SutherlandHodgman::clipPolygon(const std::vector<Point>& inputPolygon,
-                                                 const std::vector<Point>& clipWindow) {
-    if (inputPolygon.empty() || clipWindow.size() < 3) {
-        return inputPolygon;  // Retourner le polygone d'entrée s'il est vide ou si la fenêtre est invalide
-    }
-
-    std::vector<Point> outputPolygon = inputPolygon;
-
-    // Pour chaque arête de la fenêtre de découpage
-    for (size_t i = 0; i < clipWindow.size(); i++) {
-        size_t nextIndex = (i + 1) % clipWindow.size();
-        const Point& edgeStart = clipWindow[i];
-        const Point& edgeEnd = clipWindow[nextIndex];
-
-        // Découper le polygone par rapport à cette arête
-        outputPolygon = clipPolygonAgainstEdge(outputPolygon, edgeStart, edgeEnd);
-
-        // Si après découpage, le polygone est vide, retourner vide
-        if (outputPolygon.empty()) {
-            return outputPolygon;
-        }
-    }
-
-    return outputPolygon;
+bool SutherlandHodgman::isInside(const Point& p, const Point& p1, const Point& p2) {
+    return (p2.x - p1.x) * (p.y - p1.y) - (p2.y - p1.y) * (p.x - p1.x) >= 0;
 }
 
-std::vector<Point> SutherlandHodgman::clipPolygonAgainstEdge(const std::vector<Point>& inputPolygon,
-                                                            const Point& edgeStart,
-                                                            const Point& edgeEnd) {
-    std::vector<Point> outputPolygon;
+Point SutherlandHodgman::computeIntersection(const Point& s, const Point& e, const Point& p1, const Point& p2) {
+    float dc[2], dp[2];
+    dc[0] = p1.x - p2.x;
+    dc[1] = p1.y - p2.y;
+    dp[0] = s.x - e.x;
+    dp[1] = s.y - e.y;
 
-    if (inputPolygon.empty()) {
-        return outputPolygon;
-    }
-
-    // Dernier point du polygone d'entrée
-    Point s = inputPolygon.back();
-    bool sInside = isInside(s, edgeStart, edgeEnd);
-
-    // Pour chaque arête du polygone d'entrée
-    for (const Point& e : inputPolygon) {
-        bool eInside = isInside(e, edgeStart, edgeEnd);
-
-        // Cas 1: Arête traverse de l'extérieur vers l'intérieur
-        if (!sInside && eInside) {
-            // Ajouter le point d'intersection
-            outputPolygon.push_back(computeIntersection(s, e, edgeStart, edgeEnd));
-            // Ajouter le point d'arrivée
-            outputPolygon.push_back(e);
-        }
-        // Cas 2: Arête reste à l'intérieur
-        else if (sInside && eInside) {
-            // Ajouter seulement le point d'arrivée
-            outputPolygon.push_back(e);
-        }
-        // Cas 3: Arête traverse de l'intérieur vers l'extérieur
-        else if (sInside && !eInside) {
-            // Ajouter seulement le point d'intersection
-            outputPolygon.push_back(computeIntersection(s, e, edgeStart, edgeEnd));
-        }
-        // Cas 4: Arête reste à l'extérieur - ne rien ajouter
-
-        // Mettre à jour le point de départ pour la prochaine itération
-        s = e;
-        sInside = eInside;
-    }
-
-    return outputPolygon;
-}
-
-bool SutherlandHodgman::isInside(const Point& p, const Point& edgeStart, const Point& edgeEnd) {
-    // Vecteur de l'arête
-    float edgeX = edgeEnd.x - edgeStart.x;
-    float edgeY = edgeEnd.y - edgeStart.y;
-
-    // Vecteur du point par rapport au début de l'arête
-    float pX = p.x - edgeStart.x;
-    float pY = p.y - edgeStart.y;
-
-    // Produit vectoriel (2D)
-    float cross = edgeX * pY - edgeY * pX;
-
-    // Si le produit vectoriel est négatif, le point est à l'intérieur (à droite de l'arête orientée)
-    return cross <= 0;
-}
-
-Point SutherlandHodgman::computeIntersection(const Point& s, const Point& e,
-                                            const Point& edgeStart, const Point& edgeEnd) {
-    // Calcul de l'intersection entre la ligne (s,e) et l'arête (edgeStart,edgeEnd)
-
-    // Vecteurs des lignes
-    float dc_x = edgeStart.x - edgeEnd.x;
-    float dc_y = edgeStart.y - edgeEnd.y;
-    float dp_x = s.x - e.x;
-    float dp_y = s.y - e.y;
-
-    // Calcul des numérateurs et du dénominateur
-    float n1 = edgeStart.x * edgeEnd.y - edgeStart.y * edgeEnd.x;
+    float n1 = p1.x * p2.y - p1.y * p2.x;
     float n2 = s.x * e.y - s.y * e.x;
-    float n3 = 1.0f / (dc_x * dp_y - dc_y * dp_x);
+    float n3 = 1.0f / (dc[0] * dp[1] - dc[1] * dp[0]);
 
-    // Calcul des coordonnées du point d'intersection
-    float x = (n1 * dp_x - n2 * dc_x) * n3;
-    float y = (n1 * dp_y - n2 * dc_y) * n3;
+    return Point((n1 * dp[0] - n2 * dc[0]) * n3, (n1 * dp[1] - n2 * dc[1]) * n3);
+}
 
-    return Point(x, y);
+std::vector<Point> SutherlandHodgman::clipPolygon(const std::vector<Point>& subjectPolygon, const std::vector<Point>& clipPolygon) {
+    std::vector<Point> outputList = subjectPolygon;
+
+    // Pour chaque arête du polygone de découpage
+    for (int i = 0; i < clipPolygon.size(); i++) {
+        int nextI = (i + 1) % clipPolygon.size();
+        const Point& clipEdgeStart = clipPolygon[i];
+        const Point& clipEdgeEnd = clipPolygon[nextI];
+
+        std::vector<Point> inputList = outputList;
+        outputList.clear();
+
+        if (inputList.empty()) {
+            return outputList;
+        }
+
+        Point s = inputList.back();
+
+        for (const Point& e : inputList) {
+            // Si le point courant est à l'intérieur de l'arête de découpage
+            if (isInside(e, clipEdgeStart, clipEdgeEnd)) {
+                // Si le point précédent n'était pas à l'intérieur
+                if (!isInside(s, clipEdgeStart, clipEdgeEnd)) {
+                    // Ajouter le point d'intersection
+                    outputList.push_back(computeIntersection(s, e, clipEdgeStart, clipEdgeEnd));
+                }
+                // Ajouter le point courant
+                outputList.push_back(e);
+            }
+            // Si le point courant n'est pas à l'intérieur mais que le précédent l'était
+            else if (isInside(s, clipEdgeStart, clipEdgeEnd)) {
+                // Ajouter le point d'intersection
+                outputList.push_back(computeIntersection(s, e, clipEdgeStart, clipEdgeEnd));
+            }
+
+            s = e;
+        }
+    }
+
+    return outputList;
+}
+
+// dans le cas de courbes ouvertes et non polygones.
+std::vector<std::vector<Point>> SutherlandHodgman::clipCurve(const std::vector<Point>& curve,
+    const std::vector<Point>& clipPolygon) {
+    std::vector<std::vector<Point>> clippedSegments;
+
+    if (curve.size() < 2 || clipPolygon.size() < 3) {
+        return clippedSegments;
+    }
+
+    // Traiter chaque segment de la courbe séparément
+    for (size_t i = 0; i < curve.size() - 1; i++) {
+        // Créer un segment de deux points
+        std::vector<Point> segment = {curve[i], curve[i+1]};
+
+        // Découper ce segment avec Sutherland-Hodgman
+        //std::vector<Point> clippedSegment = clipPolygon(segment, clipPolygon);
+        std::vector<Point> clippedSegment = SutherlandHodgman::clipPolygon(segment, clipPolygon);
+
+
+        // Si le segment n'est pas entièrement découpé, l'ajouter aux résultats
+        if (!clippedSegment.empty()) {
+            clippedSegments.push_back(clippedSegment);
+        }
+    }
+
+    return clippedSegments;
 }

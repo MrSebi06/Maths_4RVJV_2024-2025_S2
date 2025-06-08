@@ -7,9 +7,6 @@
 #include <list>
 #include <map>
 #include <string>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
 #include "../include/GLShader.h"
 #include "../include/BezierCurve.h"
 #include "../include/ImGuiManager.h"
@@ -32,6 +29,7 @@ public:
     BezierApp(const char* title, int width, int height);
     ~BezierApp();
 
+    void toggleClippingAlgorithm();
     void run();
 
 private:
@@ -68,6 +66,8 @@ private:
 
     // Dictionnaire des commandes avec leur description
     std::map<std::string, std::string> commandDescriptions;
+
+    bool usesSutherlandHodgman;
 
     void processInput();
     void render();
