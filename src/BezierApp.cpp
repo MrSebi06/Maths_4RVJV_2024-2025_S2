@@ -181,28 +181,43 @@ void BezierApp::toggleClippingAlgorithm() {
 }
 
 void BezierApp::setupShaders3D() {
+    std::cout << "=== DEBUG SHADERS 3D DÉTAILLÉ ===" << std::endl;
+
+    // Vérifier les fichiers
+    std::cout << "VS file exists: " << std::filesystem::exists("../shader/surface3d.vs.glsl") << std::endl;
+    std::cout << "FS file exists: " << std::filesystem::exists("../shader/surface3d.fs.glsl") << std::endl;
+
     shader3D = new GLShader();
+
+    // Test vertex shader
+    std::cout << "Loading vertex shader..." << std::endl;
     bool vsOk = shader3D->LoadVertexShader("../shader/surface3d.vs.glsl");
-    bool fsOk = shader3D->LoadFragmentShader("../shader/surface3d.fs.glsl");
-    bool createOk = shader3D->Create();
-    std::cout << "Current working directory: " << std::filesystem::current_path() << std::endl;
-    // Check if shader files exist
-    std::filesystem::path vs_path("../shader/surface3d.vs.glsl");
-    std::filesystem::path fs_path("../shader/surface3d.fs.glsl");
+    std::cout << "Vertex shader result: " << (vsOk ? "OK" : "FAILED") << std::endl;
 
-    std::cout << "Looking for VS shader at: " << std::filesystem::absolute(vs_path) << std::endl;
-    std::cout << "VS shader exists: " << std::filesystem::exists(vs_path) << std::endl;
-    std::cout << "Looking for FS shader at: " << std::filesystem::absolute(fs_path) << std::endl;
-    std::cout << "FS shader exists: " << std::filesystem::exists(fs_path) << std::endl;
+    // Test fragment shader seulement si vertex OK
+    bool fsOk = false;
+    if (vsOk) {
+        std::cout << "Loading fragment shader..." << std::endl;
+        fsOk = shader3D->LoadFragmentShader("../shader/surface3d.fs.glsl");
+        std::cout << "Fragment shader result: " << (fsOk ? "OK" : "FAILED") << std::endl;
+    }
 
+    // Test création seulement si les deux OK
+    bool createOk = false;
+    if (vsOk && fsOk) {
+        std::cout << "Creating shader program..." << std::endl;
+        createOk = shader3D->Create();
+        std::cout << "Program creation result: " << (createOk ? "OK" : "FAILED") << std::endl;
+    }
 
+    std::cout << "=================================" << std::endl;
 
     if (!vsOk || !fsOk || !createOk) {
         std::cerr << "Avertissement: Shaders 3D non trouvés - Mode 3D désactivé" << std::endl;
         delete shader3D;
         shader3D = nullptr;
     } else {
-        std::cout << "Shaders 3D chargés avec succès" << std::endl;
+        std::cout << "🎉 Shaders 3D chargés avec succès!" << std::endl;
     }
 }
 
