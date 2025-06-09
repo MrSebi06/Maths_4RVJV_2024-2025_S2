@@ -53,9 +53,11 @@ if (EXISTS "${CMAKE_SOURCE_DIR}/LocalConfig.cmake")
     include("${CMAKE_SOURCE_DIR}/LocalConfig.cmake")
 endif ()
 
+# Copy shader files to build directory
 add_custom_target(copy_shader ALL
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/shader ${CMAKE_BINARY_DIR}/shader
-        DEPENDS ${MY_TARGET})
+        COMMENT "Copying shader files to build directory"
+)
 add_dependencies(${PROJECT_NAME} copy_shader)
 
 # Téléchargement d'ImGui depuis GitHub
