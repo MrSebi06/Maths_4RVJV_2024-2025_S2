@@ -1,4 +1,4 @@
-﻿#ifndef BEZIER_APP_H
+#ifndef BEZIER_APP_H
 #define BEZIER_APP_H
 
 #include <GL/glew.h>
@@ -266,6 +266,10 @@ private:
     bool checkClipPointHover(float x, float y);
     void clearClipWindow();
 
+    void saveCurvesToFile();
+    void loadCurvesFromFile();
+
+    // Initialiser les descriptions des commandes
     void initCommandDescriptions();
     std::string getModeString() const;
     void mouseToOpenGL(double mouseX, double mouseY, float& oglX, float& oglY) const;
