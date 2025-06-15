@@ -44,7 +44,10 @@ struct Surface3D {
     void cleanup();
 };
 
+// MOVE TriangularSurface inside BezierApp class - remove from here
+
 class Camera3D {
+    // ... existing Camera3D implementation stays the same ...
 private:
     glm::vec3 position;
     glm::vec3 front;
@@ -118,51 +121,64 @@ private:
 
 class BezierApp {
 public:
-    // === ENUMS EXISTANTS ===
+    // === ENUMS (unchanged) ===
     enum class Mode {
         ADD_CONTROL_POINTS = 0,
         EDIT_CONTROL_POINTS = 1,
-        CREATE_CLIP_WINDOW = 2,  // Clipping
-        EDIT_CLIP_WINDOW = 3     // edit clipping
+        CREATE_CLIP_WINDOW = 2,
+        EDIT_CLIP_WINDOW = 3
     };
 
     enum class CursorMode {
-        NORMAL = 0,      // Curseur système normal
-        HIDDEN = 1,      // Curseur système caché
-        DISABLED = 2     // Curseur système désactivé (mode capture)
+        NORMAL = 0,
+        HIDDEN = 1,
+        DISABLED = 2
     };
 
-    // === NOUVEAUX ENUMS 3D ===
     enum class ViewMode {
-        VIEW_2D = 0,     // Vue 2D uniquement (mode actuel)
-        VIEW_3D = 1,     // Vue 3D uniquement
-        VIEW_DUAL = 2    // Vue 2D + 3D côte à côte
+        VIEW_2D = 0,
+        VIEW_3D = 1,
+        VIEW_DUAL = 2
     };
 
     enum class ExtrusionType {
-        LINEAR = 0,      // Extrusion linéaire avec hauteur
-        REVOLUTION = 1,  // Extrusion par révolution
-        GENERALIZED = 2  // Extrusion le long d'une trajectoire
+        LINEAR = 0,
+        REVOLUTION = 1,
+        GENERALIZED = 2
     };
 
     enum class RenderMode3D {
-        WIREFRAME = 0,           // Mode filaire
-        SOLID_NO_LIGHTING = 1,   // Plein sans éclairage
-        SOLID_WITH_LIGHTING = 2, // Plein avec éclairage
-        TEXTURED_NO_LIGHTING = 3,// Texturé sans éclairage
-        TEXTURED_WITH_LIGHTING = 4 // Texturé avec éclairage
+        WIREFRAME = 0,
+        SOLID_NO_LIGHTING = 1,
+        SOLID_WITH_LIGHTING = 2,
+        TEXTURED_NO_LIGHTING = 3,
+        TEXTURED_WITH_LIGHTING = 4
     };
 
-    // === CONSTRUCTEUR/DESTRUCTEUR ===
+    // === CONSTRUCTOR/DESTRUCTOR ===
     BezierApp(const char* title, int width, int height);
     virtual ~BezierApp();
 
-    // === MÉTHODES EXISTANTES ===
+    // === PUBLIC METHODS ===
     void toggleClippingAlgorithm();
     virtual void run();
 
 private:
-    // === MEMBRES EXISTANTS (inchangés) ===
+    // === MOVE TriangularSurface HERE ===
+    struct TriangularSurface {
+        std::vector<Vertex3D> vertices;
+        std::vector<unsigned int> indices;
+        GLuint VAO = 0, VBO = 0, EBO = 0;
+
+        void generateTriangularPatch(const BezierCurve& curve1,
+                                     const BezierCurve& curve2,
+                                     const BezierCurve& curve3);
+        void setupBuffers();
+        void cleanup();
+        Point interpolateCurve(const std::vector<Point>& curve, float t);
+    };
+
+    // === EXISTING MEMBERS ===
     int width, height;
     GLFWwindow* window;
     GLShader* shader;
@@ -171,13 +187,13 @@ private:
     float deltaTime = 0.0f;
     float lastFrame = 0.0f;
 
-    // Curseur personnalisé
-    float mouseX, mouseY;  // Position du curseur en coordonnées OpenGL
-    double screenMouseX, screenMouseY; // Position du curseur en coordonnées écran
+    // Cursor
+    float mouseX, mouseY;
+    double screenMouseX, screenMouseY;
     GLuint cursorVAO, cursorVBO;
-    bool isPointHovered;   // Indique si un point est actuellement survolé
-    int hoveredPointIndex; // Indice du point survolé
-    CursorMode cursorMode; // Mode du curseur actuel
+    bool isPointHovered;
+    int hoveredPointIndex;
+    CursorMode cursorMode;
 
     std::list<BezierCurve> curves;
     std::list<BezierCurve>::iterator selectedCurveIterator;
@@ -186,59 +202,58 @@ private:
     int selectedPointIndex;
     bool menuNeedsUpdate = true;
 
-    // Fenêtre de découpage (Cyrus-Beck)
+    // Clipping
     std::vector<Point> clipWindow;
     int selectedClipPointIndex = -1;
     bool enableClipping = false;
-    int hoveredClipPointIndex = -1; // Indice du point de découpage survolé
+    int hoveredClipPointIndex = -1;
 
-    // Gestionnaire ImGui
     ImGuiManager imguiManager;
-
-    // Paramètres de sélection
-    float selectionPadding = 0.03f; // Rayon de sélection des points augmenté
-
-    // Dictionnaire des commandes avec leur description
+    float selectionPadding = 0.03f;
     std::map<std::string, std::string> commandDescriptions;
-
     bool usesSutherlandHodgman;
 
-    // === NOUVEAUX MEMBRES 3D ===
-    RenderMode3D renderMode3D = RenderMode3D::WIREFRAME;
+    // === 3D MEMBERS ===
+    RenderMode3D renderMode3D = RenderMode3D::SOLID_WITH_LIGHTING;
     ExtrusionType currentExtrusionType = ExtrusionType::LINEAR;
 
     Camera3D camera3D;
     GLShader* shader3D = nullptr;
 
-    // Paramètres d'extrusion
+    // Extrusion parameters
     float extrusionHeight = 1.0f;
     float extrusionScale = 1.0f;
     float revolutionAngle = 360.0f;
     int revolutionSegments = 16;
 
-    // Surface 3D courante
+    // Surfaces
     Surface3D currentSurface;
+    TriangularSurface triangularSurface; // MOVED HERE
     bool surfaceGenerated = false;
 
-    // Éclairage
+    // Lighting
     glm::vec3 lightPos = glm::vec3(2.0f, 2.0f, 2.0f);
     glm::vec3 lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
     glm::vec3 objectColor = glm::vec3(0.8f, 0.6f, 0.4f);
 
-    // Contrôles caméra 3D
+    // Camera controls
     bool cameraControlEnabled = false;
     bool firstMouse = true;
     float lastMouseX = 400.0f, lastMouseY = 300.0f;
 
-    // === MÉTHODES EXISTANTES (inchangées) ===
+    // Real-time editing
+    bool realTimeExtrusion = true;
+    bool needsExtrusionUpdate = false;
+
+    // === EXISTING METHODS ===
     virtual void processInput();
     virtual void render();
-    void renderCursor(); // Méthode pour dessiner le curseur
+    void renderCursor();
     virtual void renderMenu();
     void framebufferSizeCallback(int width, int height);
     void setMode(Mode newMode);
 
-    void cursorPositionCallback(double xpos, double ypos); // Callback pour la position du curseur
+    void cursorPositionCallback(double xpos, double ypos);
     virtual void mouseButtonCallback(int button, int action, int mods);
     virtual void keyCallback(int key, int scancode, int action, int mods);
 
@@ -246,53 +261,57 @@ private:
     void deleteCurve();
     void nextCurve();
     void selectNearestControlPoint(float x, float y);
-    bool checkPointHover(float x, float y); // Vérifie si un point est survolé
+    bool checkPointHover(float x, float y);
     void selectNearestClipPoint(float x, float y);
-    bool checkClipPointHover(float x, float y); // Vérifie si un point de découpage est survolé
+    bool checkClipPointHover(float x, float y);
     void clearClipWindow();
 
-    // Initialiser les descriptions des commandes
     void initCommandDescriptions();
-
-    // Convertir le mode en chaîne de caractères
     std::string getModeString() const;
-
-    // Conversion coordonnées souris <-> OpenGL
     void mouseToOpenGL(double mouseX, double mouseY, float& oglX, float& oglY) const;
     void setupCursorBuffers();
 
-    // === NOUVELLES MÉTHODES 3D ===
+    // === 3D METHODS ===
     void setupShaders3D();
     void render3D();
     void renderDual();
     void processCamera3D();
 
-    // Méthodes d'extrusion
+    // Extrusion methods
     void generateLinearExtrusion();
     void generateRevolutionExtrusion();
     void generateGeneralizedExtrusion();
     void calculateSurfaceNormals();
     std::vector<Point> getCurvePoints(const BezierCurve& curve) const;
 
-    // Interface utilisateur 3D
+    // ADD THESE MISSING METHODS:
+    std::vector<Point> getCurvePointsFromCurve(const BezierCurve& curve) const;
+    void bridgeCurvesSequentially();
+    void bridgeMultipleCurves(); // ADD THIS
+    void generateRuledSurfaceBridge(); // MOVED HERE
+
+    void saveCurvesToFile();
+    void loadCurvesFromFile();
+
+    // UI methods
     void renderExtrusionControls();
     void renderCameraControls();
     void renderLightingControls();
     void render3DViewport(float x, float y, float width, float height);
     void render2DViewport(float x, float y, float width, float height);
 
-    // Gestion des modes
+    // Mode setters
     void setViewMode(ViewMode mode);
     void setRenderMode3D(RenderMode3D mode);
     void setExtrusionType(ExtrusionType type);
 
-    // Utilitaires 3D
+    // Utility methods
     std::string getViewModeString() const;
     std::string getRenderMode3DString() const;
     std::string getExtrusionTypeString() const;
 };
 
-// === IMPLÉMENTATIONS INLINE POUR LES UTILITAIRES ===
+// === INLINE IMPLEMENTATIONS ===
 inline void Surface3D::setupBuffers() {
     if (!isSetup) {
         glGenVertexArrays(1, &VAO);
@@ -307,31 +326,29 @@ inline void Surface3D::updateBuffers() {
 
     glBindVertexArray(VAO);
 
-    // Buffer des vertices
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex3D),
                  vertices.data(), GL_STATIC_DRAW);
 
-    // Buffer des indices
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int),
                  indices.data(), GL_STATIC_DRAW);
 
-    // Attribut 0: Position
+    // Position
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex3D), (void*)0);
     glEnableVertexAttribArray(0);
 
-    // Attribut 1: Normal
+    // Normal
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex3D),
                           (void*)offsetof(Vertex3D, normal));
     glEnableVertexAttribArray(1);
 
-    // Attribut 2: Coordonnées de texture
+    // Texture coordinates
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex3D),
                           (void*)offsetof(Vertex3D, texCoord));
     glEnableVertexAttribArray(2);
 
-    // Attribut 3: Couleur
+    // Color
     glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex3D),
                           (void*)offsetof(Vertex3D, color));
     glEnableVertexAttribArray(3);

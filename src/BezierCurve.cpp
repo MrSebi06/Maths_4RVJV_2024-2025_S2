@@ -264,8 +264,8 @@ void BezierCurve::calculateDeCasteljau() {
         std::vector<Point> temp = controlPoints;
 
         // Algorithme de De Casteljau
-        for (int r = 1; r <= n; r++) {
-            for (int i = 0; i <= n - r; i++) {
+        for (int j = 1; j <= n; j++) {
+            for (int i = 0; i <= n - j; i++) {
                 temp[i] = temp[i] * (1 - t) + temp[i + 1] * t;
             }
         }

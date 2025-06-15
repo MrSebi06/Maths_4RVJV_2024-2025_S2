@@ -540,6 +540,21 @@ void BezierApp::run() {
 
         processInput();
 
+        if (needsExtrusionUpdate) {
+            switch (currentExtrusionType) {
+                case ExtrusionType::LINEAR:
+                    generateLinearExtrusion();
+                    break;
+                case ExtrusionType::REVOLUTION:
+                    generateRevolutionExtrusion();
+                    break;
+                case ExtrusionType::GENERALIZED:
+                    generateGeneralizedExtrusion();
+                    break;
+            }
+            needsExtrusionUpdate = false;
+        }
+
         // Commencer la frame ImGui
         imguiManager.beginFrame();
 
@@ -767,6 +782,11 @@ void BezierApp::processInput() {
     // Utiliser les coordonnées mouseX et mouseY pour l'édition
     if (currentMode == Mode::EDIT_CONTROL_POINTS && selectedPointIndex != -1 && selectedCurveIterator != curves.end()) {
         selectedCurveIterator->updateControlPoint(selectedPointIndex, mouseX, mouseY);
+
+        // ADD THIS: Trigger real-time extrusion update
+        if (realTimeExtrusion && surfaceGenerated && currentViewMode != ViewMode::VIEW_2D) {
+            needsExtrusionUpdate = true;
+        }
     }
     else if (currentMode == Mode::EDIT_CLIP_WINDOW && selectedClipPointIndex != -1) {
         clipWindow[selectedClipPointIndex].x = mouseX;
@@ -779,7 +799,6 @@ void BezierApp::processInput() {
         }
     }
 }
-
 
 void BezierApp::renderCursor() {
     // Vérifier si ImGui a le focus
@@ -958,8 +977,98 @@ void BezierApp::renderExtrusionControls() {
 
         // État des shaders 3D
         ImGui::Text("Shaders 3D: %s", shader3D ? "OK" : "Erreur");
+
+        ImGui::Separator();
+        ImGui::Checkbox("Édition temps réel", &realTimeExtrusion);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Met à jour l'extrusion 3D en temps réel lors de l'édition des points");
+        }
     }
     ImGui::End();
+}
+
+void BezierApp::generateRuledSurfaceBridge() {
+    if (curves.size() < 2) return;
+
+    auto curve1 = curves.begin();
+    auto curve2 = std::next(curve1);
+
+    curve1->calculateDirectMethod();
+    curve2->calculateDirectMethod();
+
+    std::vector<Point> points1 = curve1->getDirectMethodPoints();
+    std::vector<Point> points2 = curve2->getDirectMethodPoints();
+
+    if (points1.empty() || points2.empty()) return;
+
+    currentSurface.vertices.clear();
+    currentSurface.indices.clear();
+
+    // Simple approach: just connect corresponding points with straight lines
+    int minSize = std::min(points1.size(), points2.size());
+
+    for (int i = 0; i < minSize; i++) {
+        // Add both curve points
+        Vertex3D v1, v2;
+        v1.position = glm::vec3(points1[i].x, points1[i].y, 0.0f);
+        v1.color = glm::vec3(1.0f, 0.0f, 0.0f); // Red for first curve
+
+        v2.position = glm::vec3(points2[i].x, points2[i].y, extrusionHeight);
+        v2.color = glm::vec3(0.0f, 0.0f, 1.0f); // Blue for second curve
+
+        currentSurface.vertices.push_back(v1);
+        currentSurface.vertices.push_back(v2);
+    }
+
+    // Create triangular strips
+    for (int i = 0; i < minSize - 1; i++) {
+        int base = i * 2;
+
+        // Triangle 1
+        currentSurface.indices.push_back(base);
+        currentSurface.indices.push_back(base + 2);
+        currentSurface.indices.push_back(base + 1);
+
+        // Triangle 2
+        currentSurface.indices.push_back(base + 1);
+        currentSurface.indices.push_back(base + 2);
+        currentSurface.indices.push_back(base + 3);
+    }
+
+    calculateSurfaceNormals();
+    currentSurface.updateBuffers();
+    surfaceGenerated = true;
+
+    std::cout << "Ruled surface bridge created!" << std::endl;
+}
+
+// Helper method to get curve points from a specific curve
+std::vector<Point> BezierApp::getCurvePointsFromCurve(const BezierCurve& curve) const {
+    // Force calculation if needed
+    if (curve.getDirectMethodPoints().empty()) {
+        const_cast<BezierCurve&>(curve).calculateDirectMethod();
+    }
+    return curve.getDirectMethodPoints();
+}
+
+void BezierApp::bridgeCurvesSequentially() {
+    if (curves.size() < 3) {
+        std::cout << "Need at least 3 curves to bridge" << std::endl;
+        return;
+    }
+
+    // Get first 3 curves
+    auto it1 = curves.begin();
+    auto it2 = std::next(it1);
+    auto it3 = std::next(it2);
+
+    // Connect curve1 -> curve2 with C1 continuity
+    it1->joinC1(*it2);
+
+    // Connect curve2 -> curve3 with C1 continuity
+    it2->joinC1(*it3);
+
+    std::cout << "Bridged 3 curves sequentially with C1 continuity" << std::endl;
 }
 
 void BezierApp::mouseButtonCallback(int button, int action, int mods) {
@@ -1030,6 +1139,10 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
                 std::cout << "Mode de vue: " << getViewModeString() << std::endl;
                 break;
 
+            case GLFW_KEY_B: // B for Bridge
+                generateRuledSurfaceBridge();
+                break;
+
             case GLFW_KEY_L:
                 currentExtrusionType = ExtrusionType::LINEAR;
                 generateLinearExtrusion();
@@ -1054,7 +1167,6 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
 
                 // === TOUCHES EXISTANTES ===
             case GLFW_KEY_A:
-            case GLFW_KEY_B:
                 currentMode = Mode::ADD_CONTROL_POINTS;
                 std::cout << "Mode: Ajout de points de contrôle" << std::endl;
                 break;
@@ -1163,6 +1275,14 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
             case GLFW_KEY_Z:
                 toggleClippingAlgorithm();
                 break;
+            case GLFW_KEY_P:
+                saveCurvesToFile();
+                break;
+
+            case GLFW_KEY_O:
+                loadCurvesFromFile();
+                break;
+
 
             case GLFW_KEY_DELETE:
                 if (currentMode == Mode::EDIT_CLIP_WINDOW && selectedClipPointIndex != -1) {
@@ -1180,6 +1300,7 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
                 clearClipWindow();
                 break;
         }
+
         menuNeedsUpdate = true;
     }
 }
@@ -1257,6 +1378,79 @@ void BezierApp::generateRevolutionExtrusion() {
 
 void BezierApp::generateGeneralizedExtrusion() {
     std::cout << "Extrusion généralisée - En développement" << std::endl;
+}
+
+void BezierApp::saveCurvesToFile() {
+    std::vector<std::vector<std::tuple<float, float>>> allCurvesData;
+    for (const auto& curve : curves) {
+        std::vector<std::tuple<float, float>> curveData;
+        for (int i = 0; i < curve.getControlPointCount(); i++) {
+            Point p = curve.getControlPoint(i);
+            curveData.emplace_back(p.x, p.y);
+        }
+        allCurvesData.push_back(curveData);
+    }
+    std::ofstream
+            file("curves.crv");
+    if (file.is_open()) {
+        for (const auto& curveData : allCurvesData) {
+            for (const auto& point : curveData) {
+                file << std::get<0>(point) << " " << std::get<1>(point) << "\n";
+            }
+            file << ";\n"; // Séparateur entre les courbes
+        }
+        file.close();
+        std::cout << "Courbes sauvegardées dans le fichier: " << "curves.crv" << std::endl;
+    } else {
+        std::cerr << "Erreur lors de l'ouverture du fichier pour sauvegarde" << std::endl;
+    }
+}
+void BezierApp::loadCurvesFromFile() {
+    std::ifstream file("curves.crv");
+    if (file.is_open()) {
+        std::string line;
+        std::vector<std::tuple<float, float>> curveData;
+        curves.clear();
+
+        while (std::getline(file, line)) {
+            if (line == ";") {
+                // Create a new curve and add points to it
+                curves.emplace_back();  // Add a new curve to the container
+                auto curveIter = --curves.end();  // Get iterator to the newly added curve
+
+                for (const auto& point : curveData) {
+                    curveIter->addControlPoint(std::get<0>(point), std::get<1>(point));
+                }
+                curveData.clear();
+            } else {
+                std::istringstream iss(line);
+                float x, y;
+                if (iss >> x >> y) {
+                    curveData.emplace_back(x, y);
+                }
+            }
+        }
+
+        // Handle any remaining points (for the last curve if no ";" at the end)
+        if (!curveData.empty()) {
+            curves.emplace_back();  // Add a new curve
+            auto curveIter = --curves.end();
+
+            for (const auto& point : curveData) {
+                curveIter->addControlPoint(std::get<0>(point), std::get<1>(point));
+            }
+        }
+
+        // Set the selected curve to the first one if any were loaded
+        if (!curves.empty()) {
+            selectedCurveIterator = curves.begin();
+        }
+
+        file.close();
+        std::cout << "Courbes chargées depuis le fichier: " << "curves.crv" << std::endl;
+    } else {
+        std::cerr << "Erreur lors de l'ouverture du fichier pour chargement" << std::endl;
+    }
 }
 
 std::vector<Point> BezierApp::getCurvePoints(const BezierCurve& curve) const {
