@@ -5,12 +5,18 @@
 #include <GL/glew.h>
 #include "../include/GLShader.h"
 #include "../include/Point.h"
-#include "../include/CyriusBeck.h"
+
+
 
 class BezierCurve {
 public:
     BezierCurve();
     ~BezierCurve();
+
+    enum class ClippingAlgorithm {
+        CYRUS_BECK,
+        SUTHERLAND_HODGMAN
+    };
 
     // Méthodes de gestion des points de contrôle
     void addControlPoint(float x, float y);
@@ -59,12 +65,28 @@ public:
     void joinC1(BezierCurve& other);
     void joinC2(BezierCurve& other);
 
+    // Méthode pour découper une courbe de Bézier fermée (considérée comme un polygone)
+    std::vector<Point> clipClosedCurveWithSH(const std::vector<Point>& clipWindow) const;
+
+    // Méthode pour dessiner une courbe découpée avec Sutherland-Hodgman
+    void drawClippedWithSH(GLShader& shader, const std::vector<Point>& clippedPolygon);
+
+    // Méthode pour vérifier si une courbe est fermée
+    bool isClosedCurve() const;
+
+    void setClippingAlgorithm(ClippingAlgorithm algorithm);
+    ClippingAlgorithm getClippingAlgorithm() const;
+
+    // Add these getter methods:
+    const std::vector<Point>& getDirectMethodPoints() const { return directMethodPoints; }
+    const std::vector<Point>& getDeCasteljauPoints() const { return deCasteljauPoints; }
+
 private:
     // Points de contrôle et points de la courbe
     std::vector<Point> controlPoints;
     std::vector<Point> directMethodPoints;
     std::vector<Point> deCasteljauPoints;
-
+    ClippingAlgorithm clippingAlgorithm;
     // Triangle de Pascal pour les calculs de combinaisons
     std::vector<std::vector<int>> pascalTriangle;
 

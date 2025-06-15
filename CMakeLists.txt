@@ -14,7 +14,6 @@ set(BEZIER_HEADER_FILES
         include/BezierApp.h
         include/BezierCurve.h
         include/Point.h
-        include/Shader.h
         include/CyriusBeck.h
         include/ImGuiManager.h
 )
@@ -24,11 +23,11 @@ set(BEZIER_SOURCE_FILES
         src/BezierApp.cpp
         src/BezierCurve.cpp
         src/Point.cpp
-        src/Shader.cpp
-        src/CyriusBeck.cpp
         src/ImGuiManager.cpp
         include/ImGuiManager.h
         src/ImGuiManager.cpp
+        src/CyriusBeck.cpp
+        src/SutherlandHodgman.cpp
 )
 
 add_executable(${PROJECT_NAME} main.cpp ${BEZIER_HEADER_FILES} ${BEZIER_SOURCE_FILES})
@@ -52,9 +51,11 @@ if (EXISTS "${CMAKE_SOURCE_DIR}/LocalConfig.cmake")
     include("${CMAKE_SOURCE_DIR}/LocalConfig.cmake")
 endif ()
 
+# Copy shader files to build directory
 add_custom_target(copy_shader ALL
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/shader ${CMAKE_BINARY_DIR}/shader
-        DEPENDS ${MY_TARGET})
+        COMMENT "Copying shader files to build directory"
+)
 add_dependencies(${PROJECT_NAME} copy_shader)
 
 # Téléchargement d'ImGui depuis GitHub
