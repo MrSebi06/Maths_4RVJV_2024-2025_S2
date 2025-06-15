@@ -167,6 +167,10 @@ private:
     GLFWwindow* window;
     GLShader* shader;
 
+    ViewMode currentViewMode = ViewMode::VIEW_2D;
+    float deltaTime = 0.0f;
+    float lastFrame = 0.0f;
+
     // Curseur personnalisé
     float mouseX, mouseY;  // Position du curseur en coordonnées OpenGL
     double screenMouseX, screenMouseY; // Position du curseur en coordonnées écran
@@ -200,36 +204,31 @@ private:
     bool usesSutherlandHodgman;
 
     // === NOUVEAUX MEMBRES 3D ===
-    ViewMode currentViewMode;
-    RenderMode3D renderMode3D;
-    ExtrusionType currentExtrusionType;
+    RenderMode3D renderMode3D = RenderMode3D::WIREFRAME;
+    ExtrusionType currentExtrusionType = ExtrusionType::LINEAR;
 
     Camera3D camera3D;
-    GLShader* shader3D;
+    GLShader* shader3D = nullptr;
 
     // Paramètres d'extrusion
-    float extrusionHeight;
-    float extrusionScale;
-    float revolutionAngle;
-    int revolutionSegments;
+    float extrusionHeight = 1.0f;
+    float extrusionScale = 1.0f;
+    float revolutionAngle = 360.0f;
+    int revolutionSegments = 16;
 
     // Surface 3D courante
     Surface3D currentSurface;
-    bool surfaceGenerated;
+    bool surfaceGenerated = false;
 
     // Éclairage
-    glm::vec3 lightPos;
-    glm::vec3 lightColor;
-    glm::vec3 objectColor;
-
-    // Gestion du temps pour l'animation
-    float deltaTime;
-    float lastFrame;
+    glm::vec3 lightPos = glm::vec3(2.0f, 2.0f, 2.0f);
+    glm::vec3 lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
+    glm::vec3 objectColor = glm::vec3(0.8f, 0.6f, 0.4f);
 
     // Contrôles caméra 3D
-    bool cameraControlEnabled;
-    bool firstMouse;
-    float lastMouseX, lastMouseY;
+    bool cameraControlEnabled = false;
+    bool firstMouse = true;
+    float lastMouseX = 400.0f, lastMouseY = 300.0f;
 
     // === MÉTHODES EXISTANTES (inchangées) ===
     virtual void processInput();

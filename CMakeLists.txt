@@ -14,7 +14,6 @@ set(BEZIER_HEADER_FILES
         include/BezierApp.h
         include/BezierCurve.h
         include/Point.h
-        include/Shader.h
         include/CyriusBeck.h
         include/ImGuiManager.h
 )
@@ -24,7 +23,6 @@ set(BEZIER_SOURCE_FILES
         src/BezierApp.cpp
         src/BezierCurve.cpp
         src/Point.cpp
-        src/Shader.cpp
         src/ImGuiManager.cpp
         include/ImGuiManager.h
         src/ImGuiManager.cpp

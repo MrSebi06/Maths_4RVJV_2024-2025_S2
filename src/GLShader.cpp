@@ -150,6 +150,7 @@ bool GLShader::Create()
 	return true;
 }
 
+
 void GLShader::Destroy()
 {
 	glDetachShader(m_Program, m_VertexShader);

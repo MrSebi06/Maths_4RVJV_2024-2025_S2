@@ -118,9 +118,17 @@ void BezierCurve::addControlPoint(float x, float y) {
     if (pascalTriangle.size() < controlPoints.size()) {
         generatePascalTriangle(controlPoints.size() - 1);
     }
+    //  Calculer automatiquement les courbes dès qu'il y a au moins 2 points
+    if (controlPoints.size() >= 2) {
+        if (!showDirectMethod && !showDeCasteljau) {
+            // Si aucune méthode n'est affichée, activer la méthode directe par défaut
+            showDirectMethod = true;
+        }
 
-    // Recalculer les courbes si elles sont affichées
-    recalculateCurves();
+        // Recalculer les courbes si elles sont affichées
+        recalculateCurves();
+    }
+
     updateBuffers();
 }
 
@@ -278,6 +286,18 @@ void BezierCurve::calculateDeCasteljau() {
 
 // Modifiez la méthode draw pour utiliser l'algorithme sélectionné
 void BezierCurve::draw(GLShader& shader, const std::vector<Point>* clipWindow) {
+    static int drawCallCount = 0;
+    drawCallCount++;
+
+    if (drawCallCount % 60 == 0) { // Every second
+        std::cout << "=== BezierCurve::draw DEBUG ===" << std::endl;
+        std::cout << "Control points: " << controlPoints.size() << std::endl;
+        std::cout << "Direct method points: " << directMethodPoints.size() << std::endl;
+        std::cout << "Show direct method: " << showDirectMethod << std::endl;
+        std::cout << "Show De Casteljau: " << showDeCasteljau << std::endl;
+        std::cout << "===============================" << std::endl;
+    }
+
     shader.Begin();
 
     // Dessiner le polygone de contrôle (lignes bleues)

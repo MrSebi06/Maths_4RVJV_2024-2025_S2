@@ -16,6 +16,129 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+void BezierApp::render() {
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Disable depth testing for 2D
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+
+    // Set projection matrix for 2D
+    shader->Begin();
+    glm::mat4 projection = glm::ortho(-1.0f, 1.0f, -1.0f, 1.0f, -1.0f, 1.0f);
+    GLint projLoc = glGetUniformLocation(shader->GetProgram(), "projection");
+    if (projLoc != -1) {
+        glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+    }
+    shader->End();
+
+    // Draw all curves
+    for (auto& curve : curves) {
+        if (enableClipping && clipWindow.size() >= 3) {
+            curve.draw(*shader, &clipWindow);
+        } else {
+            curve.draw(*shader);
+        }
+    }
+
+    // Create buffers for points
+    static GLuint pointVAO = 0, pointVBO = 0;
+    if (pointVAO == 0) {
+        glGenVertexArrays(1, &pointVAO);
+        glGenBuffers(1, &pointVBO);
+
+        glBindVertexArray(pointVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, pointVBO);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glBindVertexArray(0);
+    }
+
+    shader->Begin();
+    glBindVertexArray(pointVAO);
+
+    // === DRAW CONTROL POINTS AS SMALL TRIANGLES (more visible than points) ===
+    if (selectedCurveIterator != curves.end()) {
+        for (int i = 0; i < selectedCurveIterator->getControlPointCount(); i++) {
+            Point p = selectedCurveIterator->getControlPoint(i);
+
+            // Set color
+            if (i == hoveredPointIndex) {
+                shader->SetUniform("color", 1.0f, 0.6f, 0.0f); // Orange
+            } else if (i == selectedPointIndex) {
+                shader->SetUniform("color", 0.0f, 1.0f, 0.0f); // Green
+            } else {
+                shader->SetUniform("color", 1.0f, 0.0f, 0.0f); // Red
+            }
+
+            // Create a small triangle around the point (instead of a point)
+            float size = 0.02f; // Triangle size
+            float triangle[] = {
+                    p.x - size, p.y - size,  // Bottom left
+                    p.x + size, p.y - size,  // Bottom right
+                    p.x,        p.y + size   // Top
+            };
+
+            glBindBuffer(GL_ARRAY_BUFFER, pointVBO);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(triangle), triangle, GL_STREAM_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+        }
+    }
+
+    // Draw clipping window points as triangles too
+    if (!clipWindow.empty()) {
+        for (int i = 0; i < clipWindow.size(); i++) {
+            if (i == hoveredClipPointIndex) {
+                shader->SetUniform("color", 1.0f, 1.0f, 0.0f); // Yellow
+            } else if (i == selectedClipPointIndex) {
+                shader->SetUniform("color", 1.0f, 1.0f, 0.4f); // Light yellow
+            } else {
+                shader->SetUniform("color", 0.7f, 0.7f, 0.0f); // Dark yellow
+            }
+
+            float size = 0.015f;
+            float triangle[] = {
+                    clipWindow[i].x - size, clipWindow[i].y - size,
+                    clipWindow[i].x + size, clipWindow[i].y - size,
+                    clipWindow[i].x,        clipWindow[i].y + size
+            };
+
+            glBindBuffer(GL_ARRAY_BUFFER, pointVBO);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(triangle), triangle, GL_STREAM_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+        }
+
+        // Draw clipping window lines
+        if (clipWindow.size() >= 2) {
+            static GLuint lineVAO = 0, lineVBO = 0;
+            if (lineVAO == 0) {
+                glGenVertexArrays(1, &lineVAO);
+                glGenBuffers(1, &lineVBO);
+
+                glBindVertexArray(lineVAO);
+                glBindBuffer(GL_ARRAY_BUFFER, lineVBO);
+                glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Point), (void*)0);
+                glEnableVertexAttribArray(0);
+            }
+
+            if (CyrusBeck::isPolygonConvex(clipWindow)) {
+                shader->SetUniform("color", 0.7f, 0.7f, 0.0f);
+            } else {
+                shader->SetUniform("color", 1.0f, 0.0f, 0.0f);
+            }
+
+            glBindVertexArray(lineVAO);
+            glBindBuffer(GL_ARRAY_BUFFER, lineVBO);
+            glBufferData(GL_ARRAY_BUFFER, clipWindow.size() * sizeof(Point),
+                         clipWindow.data(), GL_STREAM_DRAW);
+            glDrawArrays(GL_LINE_LOOP, 0, clipWindow.size());
+        }
+    }
+
+    glBindVertexArray(0);
+    shader->End();
+}
 
 BezierApp::BezierApp(const char* title, int width, int height)
         : width(width), height(height), currentMode(Mode::ADD_CONTROL_POINTS),
@@ -80,6 +203,15 @@ BezierApp::BezierApp(const char* title, int width, int height)
     // Configuration du viewport
     glViewport(0, 0, width, height);
 
+    // === ADD THE DEBUG CODE HERE ===
+    GLfloat pointSizeRange[2];
+    glGetFloatv(GL_POINT_SIZE_RANGE, pointSizeRange);
+    std::cout << "Point size range: " << pointSizeRange[0] << " to " << pointSizeRange[1] << std::endl;
+
+    GLfloat currentPointSize;
+    glGetFloatv(GL_POINT_SIZE, &currentPointSize);
+    std::cout << "Current point size: " << currentPointSize << std::endl;
+    // === END DEBUG CODE ===
 
     // Création du shader 2D
     shader = new GLShader();
@@ -151,17 +283,40 @@ BezierApp::BezierApp(const char* title, int width, int height)
     std::cout << "Constructeur BezierApp terminé avec succès" << std::endl;
 }
 
+
 BezierApp::~BezierApp() {
+    // Nettoyage des shaders
+    if (shader3D) {
+        delete shader3D;
+        shader3D = nullptr;
+    }
+
+    if (shader) {
+        delete shader;
+        shader = nullptr;
+    }
+
     // Nettoyage 3D
-    delete shader3D;
     currentSurface.cleanup();
 
     // Nettoyer les ressources du curseur
-    glDeleteVertexArrays(1, &cursorVAO);
-    glDeleteBuffers(1, &cursorVBO);
+    if (cursorVAO != 0) {
+        glDeleteVertexArrays(1, &cursorVAO);
+        cursorVAO = 0;
+    }
+    if (cursorVBO != 0) {
+        glDeleteBuffers(1, &cursorVBO);
+        cursorVBO = 0;
+    }
 
-    delete shader;
-    glfwDestroyWindow(window);
+    // Nettoyage ImGui
+    imguiManager.shutdown();
+
+    // Nettoyage GLFW (en dernier)
+    if (window) {
+        glfwDestroyWindow(window);
+        window = nullptr;
+    }
     glfwTerminate();
 }
 
@@ -471,20 +626,116 @@ void BezierApp::render3D() {
 }
 
 void BezierApp::renderDual() {
-    // Vue dual : 2D à gauche, 3D à droite
+    // Clear entire screen first
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // Vue 2D (moitié gauche)
-    glViewport(0, 0, width / 2, height);
-    render(); // Votre méthode render() 2D existante
+    glEnable(GL_SCISSOR_TEST);
 
-    // Vue 3D (moitié droite)
+    // === LEFT HALF: 2D View ===
+    glScissor(0, 0, width / 2, height);
+    glViewport(0, 0, width / 2, height);
+
+    // Clear left half to slightly different color so we can see the split
+    glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Disable depth testing for 2D
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+
+    // Draw curves
+    for (auto& curve : curves) {
+        if (enableClipping && clipWindow.size() >= 3) {
+            curve.draw(*shader, &clipWindow);
+        } else {
+            curve.draw(*shader);
+        }
+    }
+
+    // Draw control points
+    static GLuint pointVAO = 0, pointVBO = 0;
+    if (pointVAO == 0) {
+        glGenVertexArrays(1, &pointVAO);
+        glGenBuffers(1, &pointVBO);
+        glBindVertexArray(pointVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, pointVBO);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glBindVertexArray(0);
+    }
+
+    shader->Begin();
+    glBindVertexArray(pointVAO);
+
+    if (selectedCurveIterator != curves.end()) {
+        for (int i = 0; i < selectedCurveIterator->getControlPointCount(); i++) {
+            Point p = selectedCurveIterator->getControlPoint(i);
+
+            if (i == hoveredPointIndex) {
+                shader->SetUniform("color", 1.0f, 0.6f, 0.0f);
+            } else if (i == selectedPointIndex) {
+                shader->SetUniform("color", 0.0f, 1.0f, 0.0f);
+            } else {
+                shader->SetUniform("color", 1.0f, 0.0f, 0.0f);
+            }
+
+            float size = 0.02f;
+            float triangle[] = {
+                    p.x - size, p.y - size,
+                    p.x + size, p.y - size,
+                    p.x,        p.y + size
+            };
+
+            glBindBuffer(GL_ARRAY_BUFFER, pointVBO);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(triangle), triangle, GL_STREAM_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+        }
+    }
+
+    // Draw clipping window if exists
+    if (!clipWindow.empty()) {
+        for (int i = 0; i < clipWindow.size(); i++) {
+            if (i == hoveredClipPointIndex) {
+                shader->SetUniform("color", 1.0f, 1.0f, 0.0f);
+            } else if (i == selectedClipPointIndex) {
+                shader->SetUniform("color", 1.0f, 1.0f, 0.4f);
+            } else {
+                shader->SetUniform("color", 0.7f, 0.7f, 0.0f);
+            }
+
+            float size = 0.015f;
+            float triangle[] = {
+                    clipWindow[i].x - size, clipWindow[i].y - size,
+                    clipWindow[i].x + size, clipWindow[i].y - size,
+                    clipWindow[i].x,        clipWindow[i].y + size
+            };
+
+            glBindBuffer(GL_ARRAY_BUFFER, pointVBO);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(triangle), triangle, GL_STREAM_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+        }
+    }
+
+    glBindVertexArray(0);
+    shader->End();
+
+    // === RIGHT HALF: 3D View ===
+    glScissor(width / 2, 0, width / 2, height);
     glViewport(width / 2, 0, width / 2, height);
+
+    // Enable depth testing for 3D
+    glEnable(GL_DEPTH_TEST);
+
     render3D();
 
-    // Restaurer le viewport complet pour l'interface
+    // === Restore settings ===
+    glDisable(GL_SCISSOR_TEST);
     glViewport(0, 0, width, height);
+
+    std::cout << "Dual view rendered with scissor test" << std::endl;
 }
+
 
 void BezierApp::framebufferSizeCallback(int newWidth, int newHeight) {
     width = newWidth;
@@ -529,114 +780,6 @@ void BezierApp::processInput() {
     }
 }
 
-void BezierApp::render() {
-    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    // Dessiner toutes les courbes avec ou sans découpage
-    for (auto& curve : curves) {
-        if (enableClipping && clipWindow.size() >= 3) {
-            curve.draw(*shader, &clipWindow);
-        } else {
-            curve.draw(*shader);
-        }
-    }
-
-    // Dessiner les points de contrôle de la courbe sélectionnée
-    if (selectedCurveIterator != curves.end()) {
-        shader->Begin();
-        glBindVertexArray(0);
-        glPointSize(10.0f);
-
-        for (int i = 0; i < selectedCurveIterator->getControlPointCount(); i++) {
-            Point p = selectedCurveIterator->getControlPoint(i);
-
-            if (i == hoveredPointIndex) {
-                shader->SetUniform("color", 1.0f, 0.6f, 0.0f);
-            } else if (i == selectedPointIndex) {
-                shader->SetUniform("color", 1.0f, 0.0f, 0.0f);
-            } else {
-                shader->SetUniform("color", 0.8f, 0.0f, 0.0f);
-            }
-
-            float point[] = { p.x, p.y };
-            GLuint tempVAO, tempVBO;
-            glGenVertexArrays(1, &tempVAO);
-            glGenBuffers(1, &tempVBO);
-
-            glBindVertexArray(tempVAO);
-            glBindBuffer(GL_ARRAY_BUFFER, tempVBO);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(point), point, GL_STATIC_DRAW);
-            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
-            glEnableVertexAttribArray(0);
-
-            glDrawArrays(GL_POINTS, 0, 1);
-
-            glDeleteVertexArrays(1, &tempVAO);
-            glDeleteBuffers(1, &tempVBO);
-        }
-
-        shader->End();
-    }
-
-    // Afficher le polygone de découpage s'il existe
-    if (!clipWindow.empty()) {
-        shader->Begin();
-        glPointSize(10.0f);
-
-        for (int i = 0; i < clipWindow.size(); i++) {
-            if (i == hoveredClipPointIndex) {
-                shader->SetUniform("color", 1.0f, 1.0f, 0.0f);
-            } else if (i == selectedClipPointIndex) {
-                shader->SetUniform("color", 1.0f, 1.0f, 0.4f);
-            } else {
-                shader->SetUniform("color", 0.7f, 0.7f, 0.0f);
-            }
-
-            float point[] = { clipWindow[i].x, clipWindow[i].y };
-            GLuint tempVAO, tempVBO;
-            glGenVertexArrays(1, &tempVAO);
-            glGenBuffers(1, &tempVBO);
-
-            glBindVertexArray(tempVAO);
-            glBindBuffer(GL_ARRAY_BUFFER, tempVBO);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(point), point, GL_STATIC_DRAW);
-            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
-            glEnableVertexAttribArray(0);
-
-            glDrawArrays(GL_POINTS, 0, 1);
-
-            glDeleteVertexArrays(1, &tempVAO);
-            glDeleteBuffers(1, &tempVBO);
-        }
-
-        // Dessiner les lignes de la fenêtre
-        if (clipWindow.size() >= 2) {
-            if (CyrusBeck::isPolygonConvex(clipWindow)) {
-                shader->SetUniform("color", 0.7f, 0.7f, 0.0f);
-            } else {
-                shader->SetUniform("color", 1.0f, 0.0f, 0.0f);
-            }
-
-            GLuint linesVAO, linesVBO;
-            glGenVertexArrays(1, &linesVAO);
-            glGenBuffers(1, &linesVBO);
-
-            glBindVertexArray(linesVAO);
-            glBindBuffer(GL_ARRAY_BUFFER, linesVBO);
-            glBufferData(GL_ARRAY_BUFFER, clipWindow.size() * sizeof(Point), clipWindow.data(), GL_STATIC_DRAW);
-            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Point), (void*)0);
-            glEnableVertexAttribArray(0);
-
-            glDrawArrays(GL_LINE_LOOP, 0, clipWindow.size());
-
-            glDeleteVertexArrays(1, &linesVAO);
-            glDeleteBuffers(1, &linesVBO);
-        }
-
-        shader->End();
-    }
-}
 
 void BezierApp::renderCursor() {
     // Vérifier si ImGui a le focus
@@ -830,6 +973,7 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
                 if (selectedCurveIterator != curves.end()) {
                     selectedCurveIterator->addControlPoint(mouseX, mouseY);
                     std::cout << "Point de contrôle ajouté: (" << mouseX << ", " << mouseY << ")" << std::endl;
+
                 }
                 break;
 
@@ -943,7 +1087,22 @@ void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
 
             case GLFW_KEY_1:
                 if (selectedCurveIterator != curves.end()) {
+                    std::cout << "=== PRESSING KEY 1 DEBUG ===" << std::endl;
+                    std::cout << "Control points: " << selectedCurveIterator->getControlPointCount() << std::endl;
+
                     selectedCurveIterator->toggleDirectMethod();
+
+                    std::cout << "After toggle - showing direct: " << selectedCurveIterator->isShowingDirectMethod() << std::endl;
+
+                    // Check if points were calculated
+                    const auto& directPoints = selectedCurveIterator->getDirectMethodPoints();
+                    std::cout << "Direct method points count: " << directPoints.size() << std::endl;
+
+                    if (directPoints.size() > 0) {
+                        std::cout << "First point: (" << directPoints[0].x << ", " << directPoints[0].y << ")" << std::endl;
+                        std::cout << "Last point: (" << directPoints.back().x << ", " << directPoints.back().y << ")" << std::endl;
+                    }
+                    std::cout << "============================" << std::endl;
                 }
                 break;
 
@@ -1103,16 +1262,67 @@ void BezierApp::generateGeneralizedExtrusion() {
 std::vector<Point> BezierApp::getCurvePoints(const BezierCurve& curve) const {
     std::vector<Point> points;
 
-    // Utiliser les points de contrôle pour créer une courbe simple
     int n = curve.getControlPointCount();
-    if (n < 2) return points;
+    std::cout << "=== getCurvePoints DEBUG ===" << std::endl;
+    std::cout << "Control points count: " << n << std::endl;
 
-    // Pour l'instant, utilisons juste les points de contrôle
-    // Plus tard, nous utiliserons les points calculés par Bézier
-    for (int i = 0; i < n; i++) {
-        points.push_back(curve.getControlPoint(i));
+    if (n < 2) {
+        std::cout << "Not enough control points" << std::endl;
+        return points;
     }
 
+    // Check if methods are showing
+    bool showingDirect = curve.isShowingDirectMethod();
+    bool showingDeCasteljau = curve.isShowingDeCasteljau();
+
+    std::cout << "Showing direct method: " << showingDirect << std::endl;
+    std::cout << "Showing De Casteljau: " << showingDeCasteljau << std::endl;
+
+    // Get the calculated Bézier curve points
+    if (showingDirect) {
+        const auto& directPoints = curve.getDirectMethodPoints();
+        std::cout << "Direct method points count: " << directPoints.size() << std::endl;
+        if (!directPoints.empty()) {
+            points = directPoints;
+            std::cout << "Using direct method points" << std::endl;
+            std::cout << "=========================" << std::endl;
+            return points;
+        }
+    }
+
+    if (showingDeCasteljau) {
+        const auto& deCasteljauPoints = curve.getDeCasteljauPoints();
+        std::cout << "De Casteljau points count: " << deCasteljauPoints.size() << std::endl;
+        if (!deCasteljauPoints.empty()) {
+            points = deCasteljauPoints;
+            std::cout << "Using De Casteljau points" << std::endl;
+            std::cout << "=========================" << std::endl;
+            return points;
+        }
+    }
+
+    // If no curve is calculated, force calculation
+    std::cout << "No curve calculated, forcing direct method calculation..." << std::endl;
+    BezierCurve& nonConstCurve = const_cast<BezierCurve&>(curve);
+    nonConstCurve.calculateDirectMethod();
+
+    // Now get the calculated points
+    const auto& directPoints = curve.getDirectMethodPoints();
+    std::cout << "After forced calculation, points count: " << directPoints.size() << std::endl;
+
+    if (!directPoints.empty()) {
+        points = directPoints;
+        std::cout << "Using forced calculated points" << std::endl;
+
+        // Print first few points for verification
+        for (size_t i = 0; i < std::min(size_t(5), points.size()); i++) {
+            std::cout << "  Point " << i << ": (" << points[i].x << ", " << points[i].y << ")" << std::endl;
+        }
+    } else {
+        std::cout << "ERROR: Still no points after forced calculation!" << std::endl;
+    }
+
+    std::cout << "=========================" << std::endl;
     return points;
 }
 

@@ -77,6 +77,9 @@ public:
     void setClippingAlgorithm(ClippingAlgorithm algorithm);
     ClippingAlgorithm getClippingAlgorithm() const;
 
+    // Add these getter methods:
+    const std::vector<Point>& getDirectMethodPoints() const { return directMethodPoints; }
+    const std::vector<Point>& getDeCasteljauPoints() const { return deCasteljauPoints; }
 
 private:
     // Points de contrôle et points de la courbe
