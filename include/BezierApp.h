@@ -294,9 +294,6 @@ private:
     void bridgeMultipleCurves(); // ADD THIS
     void generateRuledSurfaceBridge(); // MOVED HERE
 
-    void saveCurvesToFile();
-    void loadCurvesFromFile();
-
     // UI methods
     void renderExtrusionControls();
     void renderCameraControls();
