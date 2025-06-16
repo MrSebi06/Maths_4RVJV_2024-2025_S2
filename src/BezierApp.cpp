@@ -1,9 +1,9 @@
 ﻿#include "../include/BezierApp.h"
-#include "../include/BezierCurve.h"
+#include "../include/bezier/BezierCurve.h"
 #include <iostream>
 #include <cmath>
-#include "../include/CyriusBeck.h"
-#include "../include/SutherlandHodgman.h"
+#include "../include/clipping/CyriusBeck.h"
+#include "../include/clipping/SutherlandHodgman.h"
 #include <algorithm>
 #include <fstream>
 #include <filesystem>

@@ -1,6 +1,6 @@
 ﻿#pragma once
 #include <vector>
-#include "Point.h"
+#include "../commons/Point.h"
 
 class CyrusBeck {
 public:

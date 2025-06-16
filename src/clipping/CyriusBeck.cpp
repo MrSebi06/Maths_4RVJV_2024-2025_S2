@@ -1,4 +1,4 @@
-﻿#include "../include/CyriusBeck.h"
+﻿#include "../../include/clipping/CyriusBeck.h"
 #include <cmath>
 #include <algorithm>
 

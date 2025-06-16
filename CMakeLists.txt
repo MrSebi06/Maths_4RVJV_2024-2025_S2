@@ -10,24 +10,23 @@ set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 find_package(OpenGL REQUIRED)
 
 set(BEZIER_HEADER_FILES
-        include/GLShader.h
+        include/commons/GLShader.h
         include/BezierApp.h
-        include/BezierCurve.h
-        include/Point.h
-        include/CyriusBeck.h
-        include/ImGuiManager.h
+        include/bezier/BezierCurve.h
+        include/commons/Point.h
+        include/ui/ImGuiManager.h
+        include/clipping/CyriusBeck.h
+        include/clipping/SutherlandHodgman.h
 )
 
 set(BEZIER_SOURCE_FILES
-        src/GLShader.cpp
+        src/commons/GLShader.cpp
         src/BezierApp.cpp
-        src/BezierCurve.cpp
-        src/Point.cpp
-        src/ImGuiManager.cpp
-        include/ImGuiManager.h
-        src/ImGuiManager.cpp
-        src/CyriusBeck.cpp
-        src/SutherlandHodgman.cpp
+        src/bezier/BezierCurve.cpp
+        src/commons/Point.cpp
+        src/ui/ImGuiManager.cpp
+        src/clipping/CyriusBeck.cpp
+        src/clipping/SutherlandHodgman.cpp
 )
 
 add_executable(${PROJECT_NAME} main.cpp ${BEZIER_HEADER_FILES} ${BEZIER_SOURCE_FILES})

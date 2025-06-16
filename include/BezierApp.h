@@ -13,9 +13,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "../include/GLShader.h"
-#include "../include/BezierCurve.h"
-#include "../include/ImGuiManager.h"
+#include "commons/GLShader.h"
+#include "../include/bezier/BezierCurve.h"
+#include "ui/ImGuiManager.h"
 
 // === NOUVELLES STRUCTURES 3D ===
 struct Vertex3D {

@@ -1,6 +1,6 @@
-﻿#include "../include/BezierCurve.h"
-#include "../include/CyriusBeck.h"
-#include "../include/SutherlandHodgman.h"
+﻿#include "../../include/bezier/BezierCurve.h"
+#include "../../include/clipping/CyriusBeck.h"
+#include "../../include/clipping/SutherlandHodgman.h"
 #include <iostream>
 #include <chrono>
 #include <cmath>
@@ -8,7 +8,7 @@
 #include <limits>
 
 BezierCurve::BezierCurve() : step(0.01f), showDirectMethod(false), showDeCasteljau(false),
-                            clippingAlgorithm(ClippingAlgorithm::CYRUS_BECK) {
+                             clippingAlgorithm(ClippingAlgorithm::CYRUS_BECK) {
     setupBuffers();
 }
 

@@ -1,5 +1,5 @@
 ﻿
-#include "../include/SutherlandHodgman.h"
+#include "../../include/clipping/SutherlandHodgman.h"
 
 bool SutherlandHodgman::isInside(const Point& p, const Point& p1, const Point& p2) {
     return (p2.x - p1.x) * (p.y - p1.y) - (p2.y - p1.y) * (p.x - p1.x) >= 0;

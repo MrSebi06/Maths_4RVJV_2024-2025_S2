@@ -1,6 +1,6 @@
 
 //#include "stdafx.h"
-#include "../include/GLShader.h"
+#include "../../include/commons/GLShader.h"
 //#define GLEW_STATIC
 #include "GL/glew.h"
 

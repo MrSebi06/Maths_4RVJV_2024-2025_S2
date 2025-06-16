@@ -3,8 +3,8 @@
 
 #include <vector>
 #include <GL/glew.h>
-#include "../include/GLShader.h"
-#include "../include/Point.h"
+#include "../commons/GLShader.h"
+#include "../commons/Point.h"
 
 
 

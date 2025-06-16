@@ -1,4 +1,4 @@
-﻿#include "../include/Point.h"
+﻿#include "../../include/commons/Point.h"
 
 Point::Point(float x, float y) : x(x), y(y) {}
 
