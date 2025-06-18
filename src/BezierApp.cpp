@@ -165,7 +165,8 @@ BezierApp::BezierApp(const char* title, int width, int height)
           surfaceGenerated(false),
           lightPos(1.2f, 1.0f, 2.0f),
           lightColor(1.0f, 1.0f, 1.0f),
-          objectColor(0.8f, 0.6f, 0.4f),
+          // objectColor(0.8f, 0.6f, 0.4f),
+          objectColor(1.f,1.f,1.f), // White for better visibility
           deltaTime(0.0f),
           lastFrame(0.0f),
           cameraControlEnabled(false),

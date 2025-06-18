@@ -236,7 +236,8 @@ private:
     // Lighting
     glm::vec3 lightPos = glm::vec3(2.0f, 2.0f, 2.0f);
     glm::vec3 lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
-    glm::vec3 objectColor = glm::vec3(0.8f, 0.6f, 0.4f);
+    // glm::vec3 objectColor = glm::vec3(0.8f, 0.6f, 0.4f);
+    glm::vec3 objectColor = glm::vec3(1.f,1.f,1.f); // White for better visibility
 
     GLuint defaultTexture;
     GLuint currentTexture;
