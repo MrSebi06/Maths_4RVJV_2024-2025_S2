@@ -417,13 +417,22 @@ void BezierApp::setupCursorBuffers() {
 }
 
 void BezierApp::mouseToOpenGL(double mouseX, double mouseY, float& oglX, float& oglY) const {
-    // Conversion simple des coordonnées de la souris en coordonnées OpenGL
-    oglX = (2.0f * static_cast<float>(mouseX) / static_cast<float>(width)) - 1.0f;
-    oglY = 1.0f - (2.0f * static_cast<float>(mouseY) / static_cast<float>(height));
+    if (currentViewMode == ViewMode::VIEW_DUAL) {
+        if (mouseX > width / 2.0) {
+            oglX = 999.0f; // Invalid coordinate to indicate right half
+            oglY = 999.0f;
+            return;
+        }
+
+        oglX = (2.0f * static_cast<float>(mouseX) / static_cast<float>(width / 2)) - 1.0f;
+        oglY = 1.0f - (2.0f * static_cast<float>(mouseY) / static_cast<float>(height));
+    } else {
+        oglX = (2.0f * static_cast<float>(mouseX) / static_cast<float>(width)) - 1.0f;
+        oglY = 1.0f - (2.0f * static_cast<float>(mouseY) / static_cast<float>(height));
+    }
 }
 
 void BezierApp::cursorPositionCallback(double xpos, double ypos) {
-
     if (cameraControlEnabled && currentViewMode != ViewMode::VIEW_2D) {
         if (firstMouse) {
             lastMouseX = xpos;
@@ -447,6 +456,14 @@ void BezierApp::cursorPositionCallback(double xpos, double ypos) {
 
     // Convertir en coordonnées OpenGL
     mouseToOpenGL(xpos, ypos, mouseX, mouseY);
+
+    // In dual view, skip hover detection if mouse is in right half
+    if (currentViewMode == ViewMode::VIEW_DUAL && mouseX > 900.0f) { // Using our invalid coordinate flag
+        isPointHovered = false;
+        hoveredPointIndex = -1;
+        hoveredClipPointIndex = -1;
+        return;
+    }
 
     // Vérifier si un point est survolé
     isPointHovered = checkPointHover(mouseX, mouseY);
@@ -707,11 +724,9 @@ void BezierApp::renderDual() {
     glScissor(0, 0, width / 2, height);
     glViewport(0, 0, width / 2, height);
 
-    // Clear left half to slightly different color so we can see the split
     glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Disable depth testing for 2D
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
 
@@ -891,6 +906,24 @@ void BezierApp::renderCursor() {
 
     if (cursorMode == CursorMode::NORMAL) return;
 
+    // In dual view, don't render cursor if mouse is in right half or coordinates are invalid
+    if (currentViewMode == ViewMode::VIEW_DUAL) {
+        // Check if mouse is in right half using screen coordinates
+        if (screenMouseX > width / 2.0) {
+            return; // Don't render cursor in 3D view
+        }
+
+        // Also check if mouseX/mouseY are invalid (set by mouseToOpenGL when in right half)
+        if (mouseX > 900.0f || mouseY > 900.0f) {
+            return;
+        }
+
+        // Set up scissor test and viewport for left half only
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(0, 0, width / 2, height);
+        glViewport(0, 0, width / 2, height);
+    }
+
     shader->Begin();
 
     if (isPointHovered || hoveredClipPointIndex != -1) {
@@ -907,17 +940,31 @@ void BezierApp::renderCursor() {
             mouseX, mouseY + cursorSize
     };
 
+    // Create/bind VAO and VBO for cursor
+    static GLuint cursorVAO = 0, cursorVBO = 0;
+    if (cursorVAO == 0) {
+        glGenVertexArrays(1, &cursorVAO);
+        glGenBuffers(1, &cursorVBO);
+        glBindVertexArray(cursorVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, cursorVBO);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glBindVertexArray(0);
+    }
+
     glBindVertexArray(cursorVAO);
     glBindBuffer(GL_ARRAY_BUFFER, cursorVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(crossLines), crossLines, GL_DYNAMIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    glLineWidth(2.0f);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(crossLines), crossLines, GL_STREAM_DRAW);
     glDrawArrays(GL_LINES, 0, 4);
-
     glBindVertexArray(0);
+
     shader->End();
+
+    // Restore viewport and disable scissor test if we enabled it
+    if (currentViewMode == ViewMode::VIEW_DUAL) {
+        glDisable(GL_SCISSOR_TEST);
+        glViewport(0, 0, width, height);
+    }
 }
 
 void BezierApp::renderMenu() {
@@ -1175,6 +1222,10 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
         }
 
         std::cout << "Contrôle caméra: " << (cameraControlEnabled ? "Activé" : "Désactivé") << std::endl;
+        return;
+    }
+
+    if (currentViewMode == ViewMode::VIEW_DUAL && mouseX > 900.0f) {
         return;
     }
 
