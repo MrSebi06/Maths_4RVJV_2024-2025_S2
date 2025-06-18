@@ -854,7 +854,7 @@ void BezierApp::processInput() {
             }
         }
     }
-    if (currentViewMode != ViewMode::VIEW_2D) {
+    if (currentViewMode != ViewMode::VIEW_2D && cameraControlEnabled) {
         // Déplacement WASD
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
             camera3D.processKeyboard(0, deltaTime); // Forward
@@ -1230,6 +1230,9 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
 }
 
 void BezierApp::keyCallback(int key, int scancode, int action, int mods) {
+    if (cameraControlEnabled) {
+        return;
+    }
     if (action == GLFW_PRESS) {
         std::cout << "Touche pressée: " << key << " (code ASCII)" << std::endl;
     }
