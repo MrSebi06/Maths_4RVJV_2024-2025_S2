@@ -16,6 +16,8 @@
 #include "commons/GLShader.h"
 #include "../include/bezier/BezierCurve.h"
 #include "ui/ImGuiManager.h"
+#include "imgui.h"
+#include "libs/imfilebrowser.h"
 
 // === NOUVELLES STRUCTURES 3D ===
 struct Vertex3D {
@@ -252,6 +254,8 @@ private:
     // Real-time editing
     bool realTimeExtrusion = true;
     bool needsExtrusionUpdate = false;
+
+    ImGui::FileBrowser fileDialog;
 
     // === EXISTING METHODS ===
     virtual void processInput();

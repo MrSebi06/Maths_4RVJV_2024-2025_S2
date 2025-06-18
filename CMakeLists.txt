@@ -27,6 +27,8 @@ set(BEZIER_SOURCE_FILES
         src/ui/ImGuiManager.cpp
         src/clipping/CyriusBeck.cpp
         src/clipping/SutherlandHodgman.cpp
+        libs/imfilebrowser.h
+        libs/stb_image.h
 )
 
 add_executable(${PROJECT_NAME} main.cpp ${BEZIER_HEADER_FILES} ${BEZIER_SOURCE_FILES})

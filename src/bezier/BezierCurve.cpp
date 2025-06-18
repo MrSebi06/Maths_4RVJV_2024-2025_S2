@@ -303,14 +303,14 @@ void BezierCurve::draw(GLShader& shader, const std::vector<Point>* clipWindow) {
     static int drawCallCount = 0;
     drawCallCount++;
 
-    if (drawCallCount % 60 == 0) { // Every second
-        std::cout << "=== BezierCurve::draw DEBUG ===" << std::endl;
-        std::cout << "Control points: " << controlPoints.size() << std::endl;
-        std::cout << "Direct method points: " << directMethodPoints.size() << std::endl;
-        std::cout << "Show direct method: " << showDirectMethod << std::endl;
-        std::cout << "Show De Casteljau: " << showDeCasteljau << std::endl;
-        std::cout << "===============================" << std::endl;
-    }
+    // if (drawCallCount % 60 == 0) { // Every second
+    //     std::cout << "=== BezierCurve::draw DEBUG ===" << std::endl;
+    //     std::cout << "Control points: " << controlPoints.size() << std::endl;
+    //     std::cout << "Direct method points: " << directMethodPoints.size() << std::endl;
+    //     std::cout << "Show direct method: " << showDirectMethod << std::endl;
+    //     std::cout << "Show De Casteljau: " << showDeCasteljau << std::endl;
+    //     std::cout << "===============================" << std::endl;
+    // }
 
     shader.Begin();
 

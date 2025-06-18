@@ -10,6 +10,10 @@
 #include <sstream>
 
 #include "imgui.h"
+#include "libs/imfilebrowser.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "libs/stb_image.h"
 
 // Définition de M_PI si nécessaire
 #ifndef M_PI
@@ -818,8 +822,6 @@ void BezierApp::renderDual() {
     // === Restore settings ===
     glDisable(GL_SCISSOR_TEST);
     glViewport(0, 0, width, height);
-
-    std::cout << "Dual view rendered with scissor test" << std::endl;
 }
 
 
@@ -2024,12 +2026,123 @@ void BezierApp::setupDefaultTexture() {
     loadedTextures.push_back({"Damier par défaut", defaultTexture});
 }
 
+#ifdef _WIN32
+#include <windows.h>
+#include <locale>
+#include <codecvt>
+#endif
+
 GLuint BezierApp::loadTexture(const std::string& path) {
-    // Pour implémenter le chargement d'images réelles, vous aurez besoin
-    // d'une bibliothèque comme stb_image.h
-    // Pour l'instant, on retourne la texture par défaut
-    std::cout << "Chargement de texture non implémenté. Utiliser stb_image.h" << std::endl;
-    return defaultTexture;
+    std::cout << "Attempting to load texture: " << path << std::endl;
+
+    GLuint textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_2D, textureID);
+
+    // Enable vertical flip for OpenGL
+    stbi_set_flip_vertically_on_load(true);
+
+    int width, height, channels;
+    unsigned char* data = nullptr;
+
+#ifdef _WIN32
+    // Convert UTF-8 path to wide string for Windows
+    try {
+        std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+        std::wstring wpath = converter.from_bytes(path);
+
+        // Use _wfopen for Unicode support on Windows
+        FILE* file = _wfopen(wpath.c_str(), L"rb");
+        if (file) {
+            fclose(file);
+            // Convert back to system locale for stbi
+            int needed = WideCharToMultiByte(CP_ACP, 0, wpath.c_str(), -1, nullptr, 0, nullptr, nullptr);
+            if (needed > 0) {
+                std::vector<char> buffer(needed);
+                WideCharToMultiByte(CP_ACP, 0, wpath.c_str(), -1, buffer.data(), needed, nullptr, nullptr);
+                data = stbi_load(buffer.data(), &width, &height, &channels, 0);
+            }
+        }
+
+        if (!data) {
+            // Fallback: try original path
+            data = stbi_load(path.c_str(), &width, &height, &channels, 0);
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Unicode conversion error: " << e.what() << std::endl;
+        data = stbi_load(path.c_str(), &width, &height, &channels, 0);
+    }
+#else
+    // Unix/Linux - should handle UTF-8 natively
+    data = stbi_load(path.c_str(), &width, &height, &channels, 0);
+#endif
+
+    if (data) {
+        std::cout << "Texture loaded successfully: " << width << "x" << height << " with " << channels << " channels" << std::endl;
+
+        GLenum format;
+        GLenum internalFormat;
+
+        switch (channels) {
+            case 1:
+                format = GL_RED;
+                internalFormat = GL_R8;
+                break;
+            case 3:
+                format = GL_RGB;
+                internalFormat = GL_RGB8;
+                break;
+            case 4:
+                format = GL_RGBA;
+                internalFormat = GL_RGBA8;
+                break;
+            default:
+                std::cerr << "Unsupported number of channels: " << channels << std::endl;
+                stbi_image_free(data);
+                glDeleteTextures(1, &textureID);
+                return 0;
+        }
+
+        glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        stbi_image_free(data);
+
+        // Check for OpenGL errors
+        GLenum error = glGetError();
+        if (error != GL_NO_ERROR) {
+            std::cerr << "OpenGL error after texture creation: " << error << std::endl;
+            glDeleteTextures(1, &textureID);
+            return 0;
+        }
+
+        std::cout << "Texture created successfully with ID: " << textureID << std::endl;
+    } else {
+        std::cerr << "Failed to load texture: " << path << std::endl;
+        std::cerr << "STB Error: " << stbi_failure_reason() << std::endl;
+
+        // Additional debugging: check if file exists
+#ifdef _WIN32
+        std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+        std::wstring wpath = converter.from_bytes(path);
+        DWORD attributes = GetFileAttributesW(wpath.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) {
+            std::cerr << "File does not exist or cannot be accessed" << std::endl;
+        } else {
+            std::cerr << "File exists but cannot be opened by stbi_load" << std::endl;
+        }
+#endif
+
+        glDeleteTextures(1, &textureID);
+        return 0;
+    }
+
+    return textureID;
 }
 
 void BezierApp::renderTextureControls() {
@@ -2054,17 +2167,25 @@ void BezierApp::renderTextureControls() {
 
         // Bouton pour charger une nouvelle texture
         if (ImGui::Button("Charger texture...")) {
-            // Ici, vous pourriez ouvrir un dialogue de fichier
-            std::cout << "Dialogue de fichier non implémenté" << std::endl;
+            fileDialog.Open();
+        }
+        fileDialog.Display();
+        if (fileDialog.HasSelected()) {
+            std::cout << "Selected filename" << fileDialog.GetSelected().string() << std::endl;
+            std::string filename = fileDialog.GetSelected().string();
+            GLuint newTexture = loadTexture(filename);
+            if (newTexture != 0) {
+                loadedTextures.push_back({filename, newTexture});
+                selectedTextureIndex = loadedTextures.size() - 1;
+                currentTexture = newTexture;
+                std::cout << "Texture chargée: " << filename << std::endl;
+            } else {
+                std::cerr << "Erreur lors du chargement de la texture: " << filename << std::endl;
+            }
+            fileDialog.ClearSelected();
         }
 
         ImGui::Text("Modes de rendu avec texture:");
-        const char* texturedModes[] = {
-            "Texturé sans éclairage",
-            "Texturé avec éclairage"
-        };
-
-        // Checkbox pour activer/désactiver les textures
         bool useTexture = (renderMode3D == RenderMode3D::TEXTURED_NO_LIGHTING ||
                           renderMode3D == RenderMode3D::TEXTURED_WITH_LIGHTING);
         if (ImGui::Checkbox("Utiliser texture", &useTexture)) {
