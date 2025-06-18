@@ -11,9 +11,18 @@ uniform vec3 lightColor;
 uniform vec3 objectColor;
 uniform vec3 viewPos;
 uniform bool useLighting;
+uniform bool useTexture;
+uniform sampler2D texture1;
 
 void main() {
     vec3 baseColor = VertexColor * objectColor;
+
+    // Si on utilise une texture, multiplier par la couleur de la texture
+    if (useTexture) {
+        vec3 texColor = texture(texture1, TexCoord).rgb;
+        baseColor *= texColor;
+    }
+
     if (useLighting) {
         float ambientStrength = 0.15;
         vec3 ambient = ambientStrength * lightColor;

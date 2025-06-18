@@ -47,20 +47,20 @@ struct Surface3D {
 // MOVE TriangularSurface inside BezierApp class - remove from here
 
 class Camera3D {
-    // ... existing Camera3D implementation stays the same ...
 private:
-    glm::vec3 position;
     glm::vec3 front;
     glm::vec3 up;
     glm::vec3 right;
     glm::vec3 worldUp;
 
     float yaw, pitch;
-    float movementSpeed;
     float mouseSensitivity;
     float zoom;
 
 public:
+    float movementSpeed;
+    glm::vec3 position;
+
     Camera3D(glm::vec3 pos = glm::vec3(0.0f, 0.0f, 3.0f))
             : position(pos), worldUp(0.0f, 1.0f, 0.0f), yaw(-90.0f), pitch(0.0f),
               movementSpeed(2.5f), mouseSensitivity(0.1f), zoom(45.0f) {
@@ -235,6 +235,14 @@ private:
     glm::vec3 lightPos = glm::vec3(2.0f, 2.0f, 2.0f);
     glm::vec3 lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
     glm::vec3 objectColor = glm::vec3(0.8f, 0.6f, 0.4f);
+
+    GLuint defaultTexture;
+    GLuint currentTexture;
+    std::vector<std::pair<std::string, GLuint>> loadedTextures;
+    int selectedTextureIndex;
+    void setupDefaultTexture();
+    GLuint loadTexture(const std::string& path);
+    void renderTextureControls();
 
     // Camera controls
     bool cameraControlEnabled = false;

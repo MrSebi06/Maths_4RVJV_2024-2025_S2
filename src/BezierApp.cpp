@@ -270,6 +270,9 @@ BezierApp::BezierApp(const char* title, int width, int height)
     // === CONFIGURATION 3D ===
     glEnable(GL_DEPTH_TEST);
     setupShaders3D();
+    setupDefaultTexture();
+    currentTexture = defaultTexture;
+    selectedTextureIndex = 0;
     currentSurface.setupBuffers();
 
     // Ajouter les nouvelles commandes 3D
@@ -317,6 +320,26 @@ BezierApp::~BezierApp() {
         glfwDestroyWindow(window);
         window = nullptr;
     }
+
+    glDeleteTextures(1, &defaultTexture);
+    for (auto& tex : loadedTextures) {
+        if (tex.second != defaultTexture) {
+            glDeleteTextures(1, &tex.second);
+        }
+    }
+
+    glfwSetScrollCallback(window, [](GLFWwindow* window, double xoffset, double yoffset) {
+        BezierApp* app = static_cast<BezierApp*>(glfwGetWindowUserPointer(window));
+
+        // Vérifier si ImGui veut capturer la molette
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.WantCaptureMouse) return;
+
+        if (app->currentViewMode != ViewMode::VIEW_2D) {
+            app->camera3D.processMouseScroll(static_cast<float>(yoffset));
+        }
+    });
+
     glfwTerminate();
 }
 
@@ -400,6 +423,24 @@ void BezierApp::mouseToOpenGL(double mouseX, double mouseY, float& oglX, float& 
 }
 
 void BezierApp::cursorPositionCallback(double xpos, double ypos) {
+
+    if (cameraControlEnabled && currentViewMode != ViewMode::VIEW_2D) {
+        if (firstMouse) {
+            lastMouseX = xpos;
+            lastMouseY = ypos;
+            firstMouse = false;
+        }
+
+        float xoffset = xpos - lastMouseX;
+        float yoffset = lastMouseY - ypos; // Inversé car y va de bas en haut
+
+        lastMouseX = xpos;
+        lastMouseY = ypos;
+
+        camera3D.processMouseMovement(xoffset, yoffset);
+        return; // Ne pas traiter le reste si on contrôle la caméra
+    }
+
     // Stocker les coordonnées écran
     screenMouseX = xpos;
     screenMouseY = ypos;
@@ -477,6 +518,10 @@ void BezierApp::initCommandDescriptions() {
     commandDescriptions["Delete"] = "Supprimer le point sélectionné";
     commandDescriptions["Backspace"] = "Effacer la fenêtre de découpage";
     commandDescriptions["Z"] = "Basculer entre Cyrus-Beck et Sutherland-Hodgman";
+    commandDescriptions["Clic droit"] = "Activer/désactiver contrôle caméra 3D";
+    commandDescriptions["WASD"] = "Déplacer la caméra (quand activée)";
+    commandDescriptions["Q/E"] = "Monter/Descendre la caméra";
+    commandDescriptions["Molette"] = "Zoom caméra";
 }
 
 std::string BezierApp::getModeString() const {
@@ -613,6 +658,16 @@ void BezierApp::render3D() {
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
     glUniformMatrix3fv(normalLoc, 1, GL_FALSE, glm::value_ptr(normalMatrix));
+
+    bool useTexture = (renderMode3D == RenderMode3D::TEXTURED_NO_LIGHTING ||
+                  renderMode3D == RenderMode3D::TEXTURED_WITH_LIGHTING);
+    glUniform1i(glGetUniformLocation(shader3D->GetProgram(), "useTexture"), useTexture);
+
+    if (useTexture) {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, currentTexture);
+        glUniform1i(glGetUniformLocation(shader3D->GetProgram(), "texture1"), 0);
+    }
 
     // Éclairage
     glUniform3fv(glGetUniformLocation(shader3D->GetProgram(), "lightPos"), 1, glm::value_ptr(lightPos));
@@ -799,6 +854,23 @@ void BezierApp::processInput() {
             }
         }
     }
+    if (currentViewMode != ViewMode::VIEW_2D) {
+        // Déplacement WASD
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+            camera3D.processKeyboard(0, deltaTime); // Forward
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+            camera3D.processKeyboard(1, deltaTime); // Backward
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+            camera3D.processKeyboard(2, deltaTime); // Left
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+            camera3D.processKeyboard(3, deltaTime); // Right
+
+        // Déplacement vertical
+        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+            camera3D.position.y += camera3D.movementSpeed * deltaTime;
+        if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+            camera3D.position.y -= camera3D.movementSpeed * deltaTime;
+    }
 }
 
 void BezierApp::renderCursor() {
@@ -884,6 +956,7 @@ void BezierApp::renderMenu() {
 
     // === NOUVEAU PANNEAU 3D ===
     renderExtrusionControls();
+    renderTextureControls();
 
     // Si c'est la première fois qu'on lance l'application, afficher une aide
     static bool showHelpOnStart = true;
@@ -984,6 +1057,20 @@ void BezierApp::renderExtrusionControls() {
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Met à jour l'extrusion 3D en temps réel lors de l'édition des points");
         }
+
+        ImGui::Separator();
+        ImGui::Text("Contrôles caméra 3D:");
+        ImGui::BulletText("Clic droit: %s", cameraControlEnabled ? "Désactiver" : "Activer");
+
+        if (cameraControlEnabled) {
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Caméra active");
+            ImGui::BulletText("WASD: Déplacement");
+            ImGui::BulletText("Q/E: Monter/Descendre");
+            ImGui::BulletText("Souris: Rotation");
+            ImGui::BulletText("Molette: Zoom");
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Clic droit pour activer");
+        }
     }
     ImGui::End();
 }
@@ -1076,6 +1163,20 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
     // Ignorer les événements de souris si ImGui a le focus
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantCaptureMouse) return;
+
+    if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS && currentViewMode != ViewMode::VIEW_2D) {
+        cameraControlEnabled = !cameraControlEnabled;
+
+        if (cameraControlEnabled) {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            firstMouse = true;
+        } else {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+        }
+
+        std::cout << "Contrôle caméra: " << (cameraControlEnabled ? "Activé" : "Désactivé") << std::endl;
+        return;
+    }
 
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
         switch (currentMode) {
@@ -1374,11 +1475,183 @@ void BezierApp::generateLinearExtrusion() {
 }
 
 void BezierApp::generateRevolutionExtrusion() {
-    std::cout << "Extrusion par révolution - En développement" << std::endl;
+    if (selectedCurveIterator == curves.end() ||
+        selectedCurveIterator->getControlPointCount() < 2) {
+        std::cout << "Pas assez de points de contrôle pour l'extrusion" << std::endl;
+        return;
+    }
+
+    currentSurface.vertices.clear();
+    currentSurface.indices.clear();
+
+    // Obtenir les points de la courbe 2D
+    std::vector<Point> curvePoints = getCurvePoints(*selectedCurveIterator);
+
+    if (curvePoints.empty()) {
+        std::cout << "Aucun point de courbe calculé" << std::endl;
+        return;
+    }
+
+    int curvePointCount = curvePoints.size();
+
+    // Générer les vertices pour la révolution
+    for (int j = 0; j <= revolutionSegments; j++) {
+        float t = (float)j / revolutionSegments;
+        float angle = (revolutionAngle * M_PI / 180.0f) * t;
+        float cosA = cos(angle);
+        float sinA = sin(angle);
+
+        for (int i = 0; i < curvePointCount; i++) {
+            Vertex3D vertex;
+
+            // Révolution autour de l'axe Y
+            // x devient le rayon, y reste la hauteur
+            float radius = curvePoints[i].x;
+            float height = curvePoints[i].y;
+
+            vertex.position = glm::vec3(
+                radius * cosA,     // x = r * cos(θ)
+                height,            // y reste y
+                radius * sinA      // z = r * sin(θ)
+            );
+
+            // Couleur basée sur la position
+            vertex.color = objectColor;
+
+            // Coordonnées de texture
+            vertex.texCoord = glm::vec2(t, (float)i / (curvePointCount - 1));
+
+            currentSurface.vertices.push_back(vertex);
+        }
+    }
+
+    // Générer les indices pour les triangles
+    for (int j = 0; j < revolutionSegments; j++) {
+        for (int i = 0; i < curvePointCount - 1; i++) {
+            int base = j * curvePointCount + i;
+            int nextRing = ((j + 1) % (revolutionSegments + 1)) * curvePointCount + i;
+
+            // Premier triangle
+            currentSurface.indices.push_back(base);
+            currentSurface.indices.push_back(nextRing);
+            currentSurface.indices.push_back(base + 1);
+
+            // Deuxième triangle
+            currentSurface.indices.push_back(base + 1);
+            currentSurface.indices.push_back(nextRing);
+            currentSurface.indices.push_back(nextRing + 1);
+        }
+    }
+
+    calculateSurfaceNormals();
+    currentSurface.updateBuffers();
+    surfaceGenerated = true;
+
+    std::cout << "Extrusion par révolution générée: " << currentSurface.vertices.size()
+              << " vertices, " << currentSurface.indices.size() / 3 << " triangles" << std::endl;
 }
 
 void BezierApp::generateGeneralizedExtrusion() {
-    std::cout << "Extrusion généralisée - En développement" << std::endl;
+    if (curves.size() < 2) {
+        std::cout << "Besoin d'au moins 2 courbes: une forme (profil) et une trajectoire (âme)" << std::endl;
+        return;
+    }
+
+    currentSurface.vertices.clear();
+    currentSurface.indices.clear();
+
+    // Première courbe = forme (profil 2D)
+    // Deuxième courbe = trajectoire (âme 3D dans le plan z=0)
+    auto formeCurve = curves.begin();
+    auto trajectoireCurve = std::next(formeCurve);
+
+    std::vector<Point> forme = getCurvePoints(*formeCurve);
+    std::vector<Point> trajectoire = getCurvePoints(*trajectoireCurve);
+
+    if (forme.empty() || trajectoire.empty()) {
+        std::cout << "Les courbes doivent avoir des points calculés" << std::endl;
+        return;
+    }
+
+    int formeSize = forme.size();
+    int trajectoireSize = trajectoire.size();
+
+    // Pour chaque point de la trajectoire
+    for (int s = 0; s < trajectoireSize; s++) {
+        // Point actuel sur la trajectoire (A(s))
+        glm::vec3 A(trajectoire[s].x, trajectoire[s].y, 0.0f);
+
+        // Calculer le vecteur tangent V = dA/ds
+        glm::vec3 V;
+        if (s == 0) {
+            // Premier point: utiliser la différence avant
+            glm::vec3 A_next(trajectoire[s+1].x, trajectoire[s+1].y, 0.0f);
+            V = glm::normalize(A_next - A);
+        } else if (s == trajectoireSize - 1) {
+            // Dernier point: utiliser la différence arrière
+            glm::vec3 A_prev(trajectoire[s-1].x, trajectoire[s-1].y, 0.0f);
+            V = glm::normalize(A - A_prev);
+        } else {
+            // Points intermédiaires: utiliser la différence centrée
+            glm::vec3 A_next(trajectoire[s+1].x, trajectoire[s+1].y, 0.0f);
+            glm::vec3 A_prev(trajectoire[s-1].x, trajectoire[s-1].y, 0.0f);
+            V = glm::normalize(A_next - A_prev);
+        }
+
+        // N est perpendiculaire au plan z=0, donc N = (0, 0, 1)
+        glm::vec3 N(0.0f, 0.0f, 1.0f);
+
+        // Calculer U = V × N
+        glm::vec3 U = glm::normalize(glm::cross(V, N));
+
+        // Recalculer N = U × V pour assurer l'orthogonalité
+        N = glm::normalize(glm::cross(U, V));
+
+        // Pour chaque point de la forme
+        for (int t = 0; t < formeSize; t++) {
+            Vertex3D vertex;
+
+            // Position du point dans le repère local (U, N)
+            // σ(t,s) = A(s) + x_f(t) * U + y_f(t) * N
+            vertex.position = A + forme[t].x * U + forme[t].y * N;
+
+            // Coordonnées de texture
+            vertex.texCoord = glm::vec2(
+                (float)t / (formeSize - 1),
+                (float)s / (trajectoireSize - 1)
+            );
+
+            // Couleur
+            vertex.color = objectColor;
+
+            currentSurface.vertices.push_back(vertex);
+        }
+    }
+
+    // Générer les indices pour créer les triangles
+    for (int s = 0; s < trajectoireSize - 1; s++) {
+        for (int t = 0; t < formeSize - 1; t++) {
+            int base = s * formeSize + t;
+            int next = base + formeSize;
+
+            // Premier triangle
+            currentSurface.indices.push_back(base);
+            currentSurface.indices.push_back(next);
+            currentSurface.indices.push_back(base + 1);
+
+            // Deuxième triangle
+            currentSurface.indices.push_back(base + 1);
+            currentSurface.indices.push_back(next);
+            currentSurface.indices.push_back(next + 1);
+        }
+    }
+
+    calculateSurfaceNormals();
+    currentSurface.updateBuffers();
+    surfaceGenerated = true;
+
+    std::cout << "Extrusion généralisée créée: " << currentSurface.vertices.size()
+              << " vertices, " << currentSurface.indices.size() / 3 << " triangles" << std::endl;
 }
 
 void BezierApp::saveCurvesToFile() {
@@ -1661,3 +1934,88 @@ void BezierApp::clearClipWindow() {
     std::cout << "Fenêtre de découpage effacée" << std::endl;
 }
 
+void BezierApp::setupDefaultTexture() {
+    // Créer une texture procédurale en damier
+    const int size = 256;
+    unsigned char* data = new unsigned char[size * size * 3];
+
+    for (int y = 0; y < size; y++) {
+        for (int x = 0; x < size; x++) {
+            int index = (y * size + x) * 3;
+            bool isDark = ((x / 32) + (y / 32)) % 2;
+            unsigned char color = isDark ? 64 : 192;
+            data[index] = color;
+            data[index + 1] = color;
+            data[index + 2] = color;
+        }
+    }
+
+    glGenTextures(1, &defaultTexture);
+    glBindTexture(GL_TEXTURE_2D, defaultTexture);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, size, size, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    delete[] data;
+
+    // Ajouter à la liste
+    loadedTextures.push_back({"Damier par défaut", defaultTexture});
+}
+
+GLuint BezierApp::loadTexture(const std::string& path) {
+    // Pour implémenter le chargement d'images réelles, vous aurez besoin
+    // d'une bibliothèque comme stb_image.h
+    // Pour l'instant, on retourne la texture par défaut
+    std::cout << "Chargement de texture non implémenté. Utiliser stb_image.h" << std::endl;
+    return defaultTexture;
+}
+
+void BezierApp::renderTextureControls() {
+    ImGui::SetNextWindowPos(ImVec2(width - 310, height - 200), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(300, 180), ImGuiCond_FirstUseEver);
+
+    if (ImGui::Begin("Contrôles de texture")) {
+        // Sélection de la texture
+        if (ImGui::BeginCombo("Texture", loadedTextures[selectedTextureIndex].first.c_str())) {
+            for (int i = 0; i < loadedTextures.size(); i++) {
+                bool isSelected = (selectedTextureIndex == i);
+                if (ImGui::Selectable(loadedTextures[i].first.c_str(), isSelected)) {
+                    selectedTextureIndex = i;
+                    currentTexture = loadedTextures[i].second;
+                }
+                if (isSelected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        // Bouton pour charger une nouvelle texture
+        if (ImGui::Button("Charger texture...")) {
+            // Ici, vous pourriez ouvrir un dialogue de fichier
+            std::cout << "Dialogue de fichier non implémenté" << std::endl;
+        }
+
+        ImGui::Text("Modes de rendu avec texture:");
+        const char* texturedModes[] = {
+            "Texturé sans éclairage",
+            "Texturé avec éclairage"
+        };
+
+        // Checkbox pour activer/désactiver les textures
+        bool useTexture = (renderMode3D == RenderMode3D::TEXTURED_NO_LIGHTING ||
+                          renderMode3D == RenderMode3D::TEXTURED_WITH_LIGHTING);
+        if (ImGui::Checkbox("Utiliser texture", &useTexture)) {
+            if (useTexture) {
+                renderMode3D = RenderMode3D::TEXTURED_WITH_LIGHTING;
+            } else {
+                renderMode3D = RenderMode3D::SOLID_WITH_LIGHTING;
+            }
+        }
+    }
+    ImGui::End();
+}
