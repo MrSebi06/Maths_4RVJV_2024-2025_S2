@@ -20,6 +20,7 @@ public:
 
     // Méthodes de gestion des points de contrôle
     void addControlPoint(float x, float y);
+    void closeCurve();
     void updateControlPoint(int index, float x, float y);
     void removeControlPoint(int index);
     void clearControlPoints();

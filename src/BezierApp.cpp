@@ -1233,9 +1233,13 @@ void BezierApp::mouseButtonCallback(int button, int action, int mods) {
         switch (currentMode) {
             case Mode::ADD_CONTROL_POINTS:
                 if (selectedCurveIterator != curves.end()) {
-                    selectedCurveIterator->addControlPoint(mouseX, mouseY);
-                    std::cout << "Point de contrôle ajouté: (" << mouseX << ", " << mouseY << ")" << std::endl;
-
+                    if (isPointHovered && hoveredPointIndex == 0) {
+                        selectedCurveIterator->closeCurve();
+                        std::cout << "Courbe fermée" << std::endl;
+                    } else {
+                        selectedCurveIterator->addControlPoint(mouseX, mouseY);
+                        std::cout << "Point de contrôle ajouté: (" << mouseX << ", " << mouseY << ")" << std::endl;
+                    }
                 }
                 break;
 

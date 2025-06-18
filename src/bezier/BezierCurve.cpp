@@ -132,6 +132,20 @@ void BezierCurve::addControlPoint(float x, float y) {
     updateBuffers();
 }
 
+void BezierCurve::closeCurve() {
+    if (controlPoints.size() < 2) {
+        std::cerr << "Impossible de fermer la courbe, il faut au moins 2 points." << std::endl;
+        return;
+    }
+    controlPoints.push_back(controlPoints.front());
+    if (pascalTriangle.size() < controlPoints.size()) {
+        generatePascalTriangle(controlPoints.size() - 1);
+    }
+    recalculateCurves();
+    updateBuffers();
+}
+
+
 void BezierCurve::updateControlPoint(int index, float x, float y) {
     if (index >= 0 && index < controlPoints.size()) {
         controlPoints[index].x = x;
